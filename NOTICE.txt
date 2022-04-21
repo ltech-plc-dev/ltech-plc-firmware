@@ -1,6 +1,5 @@
-.\" Copyright (C) 1993 Rickard E. Faith <faith@cs.unc.edu>
-.\" and Copyright (C) 1994 Andries E. Brouwer <aeb@cwi.nl>
-.\" and Copyright (C) 2002, 2005, 2016 Michael Kerrisk <mtk.manpages@gmail.com>
+.\" Copyright (c) 1992 Drew Eckhardt (drew@cs.colorado.edu), March 28, 1992
+.\" and Copyright (c) 2006 Michael Kerrisk <mtk.manpages@gmail.com>
 .\"
 .\" %%%LICENSE_START(VERBATIM)
 .\" Permission is granted to make and distribute verbatim copies of this
@@ -24,963 +23,870 @@
 .\" the source, must acknowledge the copyright and authors of this work.
 .\" %%%LICENSE_END
 .\"
-.\" Modified 1996-11-04 by Eric S. Raymond <esr@thyrsus.com>
-.\" Modified 2001-10-13 by Michael Kerrisk <mtk.manpages@gmail.com>
-.\"	Added note on historical behavior of MS_NOSUID
-.\" Modified 2002-05-16 by Michael Kerrisk <mtk.manpages@gmail.com>
-.\"	Extensive changes and additions
-.\" Modified 2002-05-27 by aeb
-.\" Modified 2002-06-11 by Michael Kerrisk <mtk.manpages@gmail.com>
-.\"	Enhanced descriptions of MS_MOVE, MS_BIND, and MS_REMOUNT
-.\" Modified 2004-06-17 by Michael Kerrisk <mtk.manpages@gmail.com>
-.\" 2005-05-18, mtk, Added MNT_EXPIRE, plus a few other tidy-ups.
-.\" 2008-10-06, mtk: move umount*() material into separate umount.2 page.
-.\" 2008-10-06, mtk: Add discussion of namespaces.
+.\" Modified by Michael Haardt <michael@moria.de>
+.\" Modified 1993-07-21 by Rik Faith <faith@cs.unc.edu>
+.\" Modified 1994-08-21 by Michael Chastain <mec@shell.portal.com>:
+.\" Modified 1997-01-31 by Eric S. Raymond <esr@thyrsus.com>
+.\" Modified 1999-11-12 by Urs Thuermann <urs@isnogud.escape.de>
+.\" Modified 2004-06-23 by Michael Kerrisk <mtk.manpages@gmail.com>
+.\" 2006-09-04 Michael Kerrisk <mtk.manpages@gmail.com>
+.\"     Added list of process attributes that are not preserved on exec().
+.\" 2007-09-14 Ollie Wild <aaw@google.com>, mtk
+.\"     Add text describing limits on command-line arguments + environment
 .\"
-.TH MOUNT 2 2021-08-27 "Linux" "Linux Programmer's Manual"
+.TH EXECVE 2 2021-08-27 "Linux" "Linux Programmer's Manual"
 .SH NAME
-mount \- mount filesystem
+execve \- execute program
 .SH SYNOPSIS
 .nf
-.B "#include <sys/mount.h>"
+.B #include <unistd.h>
 .PP
-.BI "int mount(const char *" source ", const char *" target ,
-.BI "          const char *" filesystemtype ", unsigned long " mountflags ,
-.BI "          const void *" data );
+.BI "int execve(const char *" pathname ", char *const " argv [],
+.BI "           char *const " envp []);
 .fi
 .SH DESCRIPTION
-.BR mount ()
-attaches the filesystem specified by
-.I source
-(which is often a pathname referring to a device,
-but can also be the pathname of a directory or file,
-or a dummy string) to the location (a directory or file)
-specified by the pathname in
-.IR target .
+.BR execve ()
+executes the program referred to by \fIpathname\fP.
+This causes the program that is currently being run by the calling process
+to be replaced with a new program, with newly initialized stack, heap,
+and (initialized and uninitialized) data segments.
 .PP
-Appropriate privilege (Linux: the
-.B CAP_SYS_ADMIN
-capability) is required to mount filesystems.
-.PP
-Values for the
-.I filesystemtype
-argument supported by the kernel are listed in
-.I /proc/filesystems
-(e.g., "btrfs", "ext4", "jfs", "xfs", "vfat", "fuse",
-"tmpfs", "cgroup", "proc", "mqueue", "nfs", "cifs", "iso9660").
-Further types may become available when the appropriate modules
-are loaded.
-.PP
-The
-.I data
-argument is interpreted by the different filesystems.
-Typically it is a string of comma-separated options
-understood by this filesystem.
-See
-.BR mount (8)
-for details of the options available for each filesystem type.
-This argument may be specified as NULL, if there are no options.
-.PP
-A call to
-.BR mount ()
-performs one of a number of general types of operation,
-depending on the bits specified in
-.IR mountflags .
-The choice of which operation to perform is determined by
-testing the bits set in
-.IR mountflags ,
-with the tests being conducted in the order listed here:
-.IP * 3
-Remount an existing mount:
-.IR mountflags
-includes
-.BR MS_REMOUNT .
-.IP *
-Create a bind mount:
-.IR mountflags
-includes
-.BR MS_BIND .
-.IP *
-Change the propagation type of an existing mount:
-.IR mountflags
-includes one of
-.BR MS_SHARED ,
-.BR MS_PRIVATE ,
-.BR MS_SLAVE ,
-or
-.BR MS_UNBINDABLE .
-.IP *
-Move an existing mount to a new location:
-.IR mountflags
-includes
-.BR MS_MOVE .
-.IP *
-Create a new mount:
-.IR mountflags
-includes none of the above flags.
-.PP
-Each of these operations is detailed later in this page.
-Further flags may be specified in
-.IR mountflags
-to modify the behavior of
-.BR mount (),
-as described below.
-.\"
-.SS Additional mount flags
-The list below describes the additional flags that can be specified in
-.IR mountflags .
-Note that some operation types ignore some or all of these flags,
-as described later in this page.
-.\"
-.\" FIXME 2.6.25 Added MS_I_VERSION, which needs to be documented.
-.\" commit 7a224228ed79d587ece2304869000aad1b8e97dd
-.\" (This is a per-superblock flag)
-.\"
-.TP
-.BR MS_DIRSYNC " (since Linux 2.5.19)"
-Make directory changes on this filesystem synchronous.
-(This property can be obtained for individual directories
-or subtrees using
-.BR chattr (1).)
-.TP
-.BR MS_LAZYTIME " (since Linux 4.0)"
-.\" commit 0ae45f63d4ef8d8eeec49c7d8b44a1775fff13e8
-.\" commit fe032c422c5ba562ba9c2d316f55e258e03259c6
-.\" commit a26f49926da938f47561f386be56a83dd37a496d
-Reduce on-disk updates of inode timestamps (atime, mtime, ctime)
-by maintaining these changes only in memory.
-The on-disk timestamps are updated only when:
-.RS
-.IP (a) 4
-the inode needs to be updated for some change unrelated to file timestamps;
-.IP (b)
-the application employs
-.BR fsync (2),
-.BR syncfs (2),
-or
-.BR sync (2);
-.IP (c)
-an undeleted inode is evicted from memory; or
-.IP (d)
-more than 24 hours have passed since the inode was written to disk.
-.RE
-.IP
-This mount option significantly reduces writes
-needed to update the inode's timestamps, especially mtime and atime.
-However, in the event of a system crash, the atime and mtime fields
-on disk might be out of date by up to 24 hours.
-.IP
-Examples of workloads where this option could be of significant benefit
-include frequent random writes to preallocated files,
-as well as cases where the
-.B MS_STRICTATIME
-mount option is also enabled.
-(The advantage of combining
-.BR MS_STRICTATIME
-and
-.BR MS_LAZYTIME
-is that
-.BR stat (2)
-will return the correctly updated atime, but the atime updates
-will be flushed to disk only in the cases listed above.)
-.TP
-.B MS_MANDLOCK
-Permit mandatory locking on files in this filesystem.
-(Mandatory locking must still be enabled on a per-file basis,
-as described in
-.BR fcntl (2).)
-Since Linux 4.5,
-.\" commit 95ace75414f312f9a7b93d873f386987b92a5301
-this mount option requires the
-.B CAP_SYS_ADMIN
-capability and a kernel configured with the
-.B CONFIG_MANDATORY_FILE_LOCKING
-option.
-.TP
-.B MS_NOATIME
-Do not update access times for (all types of) files on this filesystem.
-.TP
-.B MS_NODEV
-Do not allow access to devices (special files) on this filesystem.
-.TP
-.B MS_NODIRATIME
-Do not update access times for directories on this filesystem.
-This flag provides a subset of the functionality provided by
-.BR MS_NOATIME ;
-that is,
-.BR MS_NOATIME
-implies
-.BR MS_NODIRATIME .
-.TP
-.B MS_NOEXEC
-Do not allow programs to be executed from this filesystem.
-.\" (Possibly useful for a filesystem that contains non-Linux executables.
-.\" Often used as a security feature, e.g., to make sure that restricted
-.\" users cannot execute files uploaded using ftp or so.)
-.TP
-.B MS_NOSUID
-Do not honor set-user-ID and set-group-ID bits or file capabilities
-when executing programs from this filesystem.
-In addition, SELinux domain
-transitions require the permission
-.IR nosuid_transition ,
-which in turn needs
-also the policy capability
-.IR nnp_nosuid_transition .
-.\" (This is a security feature to prevent users executing set-user-ID and
-.\" set-group-ID programs from removable disk devices.)
-.TP
-.B MS_RDONLY
-Mount filesystem read-only.
-.TP
-.BR MS_REC " (since Linux 2.4.11)"
-Used in conjunction with
-.BR MS_BIND
-to create a recursive bind mount,
-and in conjunction with the propagation type flags to recursively change
-the propagation type of all of the mounts in a subtree.
-See below for further details.
-.TP
-.BR MS_RELATIME " (since Linux 2.6.20)"
-When a file on this filesystem is accessed,
-update the file's last access time (atime) only if the current value
-of atime is less than or equal to the file's last modification time (mtime)
-or last status change time (ctime).
-This option is useful for programs, such as
-.BR mutt (1),
-that need to know when a file has been read since it was last modified.
-Since Linux 2.6.30, the kernel defaults to the behavior provided
-by this flag (unless
-.BR MS_NOATIME
-was specified), and the
-.B MS_STRICTATIME
-flag is required to obtain traditional semantics.
-In addition, since Linux 2.6.30,
-the file's last access time is always updated if it
-is more than 1 day old.
-.\" Matthew Garrett notes in the patch that added this behavior
-.\" that this lets utilities such as tmpreaper (which deletes
-.\" files based on last access time) work correctly.
-.TP
-.BR MS_SILENT " (since Linux 2.6.17)"
-Suppress the display of certain
-.RI ( printk ())
-warning messages in the kernel log.
-This flag supersedes the misnamed and obsolete
-.BR MS_VERBOSE
-flag (available since Linux 2.4.12), which has the same meaning.
-.TP
-.BR MS_STRICTATIME " (since Linux 2.6.30)"
-Always update the last access time (atime) when files on this
-filesystem are accessed.
-(This was the default behavior before Linux 2.6.30.)
-Specifying this flag overrides the effect of setting the
-.BR MS_NOATIME
-and
-.BR MS_RELATIME
-flags.
-.TP
-.B MS_SYNCHRONOUS
-Make writes on this filesystem synchronous (as though
-the
-.B O_SYNC
-flag to
-.BR open (2)
-was specified for all file opens to this filesystem).
-.TP
-.BR MS_NOSYMFOLLOW " (since Linux 5.10)"
-.\" dab741e0e02bd3c4f5e2e97be74b39df2523fc6e
-Do not follow symbolic links when resolving paths.
-Symbolic links can still be created,
-and
-.BR readlink (1),
-.BR readlink (2),
-.BR realpath (1),
-and
-.BR realpath (3)
-all still work properly.
-.PP
-From Linux 2.4 onward, some of the above flags are
-settable on a per-mount basis,
-while others apply to the superblock of the mounted filesystem,
-meaning that all mounts of the same filesystem share those flags.
-(Previously, all of the flags were per-superblock.)
-.PP
-The per-mount-point flags are as follows:
-.IP * 3
-Since Linux 2.4:
-.BR MS_NODEV ", " MS_NOEXEC ", and " MS_NOSUID
-flags are settable on a per-mount-point basis.
-.IP *
-Additionally, since Linux 2.6.16:
-.B MS_NOATIME
-and
-.BR MS_NODIRATIME .
-.IP *
-Additionally, since Linux 2.6.20:
-.BR MS_RELATIME .
-.PP
-The following flags are per-superblock:
-.BR MS_DIRSYNC ,
-.BR MS_LAZYTIME ,
-.BR MS_MANDLOCK ,
-.BR MS_SILENT ,
-and
-.BR MS_SYNCHRONOUS .
-.\" And MS_I_VERSION?
-The initial settings of these flags are determined on the first
-mount of the filesystem, and will be shared by all subsequent mounts
-of the same filesystem.
-Subsequently, the settings of the flags can be changed
-via a remount operation (see below).
-Such changes will be visible via all mounts associated
-with the filesystem.
-.PP
-Since Linux 2.6.16,
-.B MS_RDONLY
-can be set or cleared on a per-mount-point basis as well as on
-the underlying filesystem superblock.
-The mounted filesystem will be writable only if neither the filesystem
-nor the mountpoint are flagged as read-only.
-.\"
-.SS Remounting an existing mount
-An existing mount may be remounted by specifying
-.B MS_REMOUNT
-in
-.IR mountflags .
-This allows you to change the
-.I mountflags
-and
-.I data
-of an existing mount without having to unmount and remount the filesystem.
-.I target
-should be the same value specified in the initial
-.BR mount ()
-call.
-.PP
-The
-.I source
-and
-.I filesystemtype
-arguments are ignored.
-.PP
-The
-.I mountflags
-and
-.I data
-arguments should match the values used in the original
-.BR mount ()
-call, except for those parameters that are being deliberately changed.
-.PP
-The following
-.I mountflags
-can be changed:
-.BR MS_LAZYTIME ,
-.\" FIXME
-.\" MS_LAZYTIME seems to be available only on a few filesystems,
-.\" and on ext4, it seems (from experiment that this flag
-.\" can only be enabled (but not disabled) on a remount.
-.\" The following code in ext4_remount() (kernel 4.17) seems to
-.\" confirm this:
-.\"
-.\"        if (*flags & SB_LAZYTIME)
-.\"                sb->s_flags |= SB_LAZYTIME;
-.BR MS_MANDLOCK ,
-.BR MS_NOATIME ,
-.BR MS_NODEV ,
-.BR MS_NODIRATIME ,
-.BR MS_NOEXEC ,
-.BR MS_NOSUID ,
-.BR MS_RELATIME ,
-.BR MS_RDONLY ,
-.BR MS_STRICTATIME
-(whose effect is to clear the
-.BR MS_NOATIME
-and
-.BR MS_RELATIME
-flags),
-and
-.BR MS_SYNCHRONOUS .
-Attempts to change the setting of the
-.\" See the definition of MS_RMT_MASK in include/uapi/linux/fs.h,
-.\" which excludes MS_DIRSYNC and MS_SILENT, although SB_DIRSYNC
-.\" and SB_SILENT are split out as per-superblock flags in do_mount()
-.\" (Linux 4.17 source code)
-.BR MS_DIRSYNC
-and
-.BR MS_SILENT
-flags during a remount are silently ignored.
-Note that changes to per-superblock flags are visible via
-all mounts of the associated filesystem
-(because the per-superblock flags are shared by all mounts).
-.PP
-Since Linux 3.17,
-.\" commit ffbc6f0ead47fa5a1dc9642b0331cb75c20a640e
-if none of
-.BR MS_NOATIME ,
-.BR MS_NODIRATIME ,
-.BR MS_RELATIME ,
-or
-.BR MS_STRICTATIME
-is specified in
-.IR mountflags ,
-then the remount operation preserves the existing values of these flags
-(rather than defaulting to
-.BR MS_RELATIME ).
-.PP
-Since Linux 2.6.26, the
-.B MS_REMOUNT
-flag can be used with
-.B MS_BIND
-to modify only the per-mount-point flags.
-.\" See https://lwn.net/Articles/281157/
-This is particularly useful for setting or clearing the "read-only"
-flag on a mount without changing the underlying filesystem.
-Specifying
-.IR mountflags
-as:
+\fIpathname\fP must be either a binary executable, or a script
+starting with a line of the form:
 .PP
 .in +4n
 .EX
-MS_REMOUNT | MS_BIND | MS_RDONLY
+\fB#!\fP\fIinterpreter \fP[optional-arg]
 .EE
 .in
 .PP
-will make access through this mountpoint read-only, without affecting
-other mounts.
-.\"
-.SS Creating a bind mount
-If
-.I mountflags
-includes
-.BR MS_BIND
-(available since Linux 2.4),
-.\" since 2.4.0-test9
-then perform a bind mount.
-A bind mount makes a file or a directory subtree visible at
-another point within the single directory hierarchy.
-Bind mounts may cross filesystem boundaries and span
-.BR chroot (2)
-jails.
+For details of the latter case, see "Interpreter scripts" below.
 .PP
+\fIargv\fP is an array of pointers to strings passed to the new program
+as its command-line arguments.
+By convention, the first of these strings (i.e.,
+.IR argv[0] )
+should contain the filename associated with the file being executed.
 The
-.IR filesystemtype
-and
-.IR data
-arguments are ignored.
+.I argv
+array must be terminated by a NULL pointer.
+(Thus, in the new program,
+.IR argv[argc]
+will be NULL.)
 .PP
-The remaining bits (other than
-.BR MS_REC ,
-described below) in the
-.I mountflags
-argument are also ignored.
-(The bind mount has the same mount options as
-the underlying mount.)
-However, see the discussion of remounting above,
-for a method of making an existing bind mount read-only.
+\fIenvp\fP is an array of pointers to strings, conventionally of the form
+\fBkey=value\fP, which are passed as the environment of the new program.
+The
+.I envp
+array must be terminated by a NULL pointer.
 .PP
-By default, when a directory is bind mounted,
-only that directory is mounted;
-if there are any submounts under the directory tree,
-they are not bind mounted.
-If the
-.BR MS_REC
-flag is also specified, then a recursive bind mount operation is performed:
-all submounts under the
-.I source
-subtree (other than unbindable mounts)
-are also bind mounted at the corresponding location in the
-.I target
-subtree.
-.\"
-.SS Changing the propagation type of an existing mount
-If
-.IR mountflags
-includes one of
-.BR MS_SHARED ,
-.BR MS_PRIVATE ,
-.BR MS_SLAVE ,
+The argument vector and environment can be accessed by the
+new program's main function, when it is defined as:
+.PP
+.in +4n
+.EX
+int main(int argc, char *argv[], char *envp[])
+.EE
+.in
+.PP
+Note, however, that the use of a third argument to the main function
+is not specified in POSIX.1;
+according to POSIX.1,
+the environment should be accessed via the external variable
+.BR environ (7).
+.PP
+.BR execve ()
+does not return on success, and the text, initialized data,
+uninitialized data (bss), and stack of the calling process are overwritten
+according to the contents of the newly loaded program.
+.PP
+If the current program is being ptraced, a \fBSIGTRAP\fP signal is sent to it
+after a successful
+.BR execve ().
+.PP
+If the set-user-ID bit is set on the program file referred to by
+\fIpathname\fP,
+then the effective user ID of the calling process is changed
+to that of the owner of the program file.
+Similarly, if the set-group-ID bit is set on the program file,
+then the effective group ID of the calling
+process is set to the group of the program file.
+.PP
+The aforementioned transformations of the effective IDs are
+.I not
+performed (i.e., the set-user-ID and set-group-ID bits are ignored)
+if any of the following is true:
+.IP * 3
+the
+.I no_new_privs
+attribute is set for the calling thread (see
+.BR prctl (2));
+.IP *
+the underlying filesystem is mounted
+.I nosuid
+(the
+.B MS_NOSUID
+flag for
+.BR mount (2));
 or
-.BR MS_UNBINDABLE
-(all available since Linux 2.6.15),
-then the propagation type of an existing mount is changed.
-If more than one of these flags is specified, an error results.
+.IP *
+the calling process is being ptraced.
 .PP
-The only other flags that can be specified while changing
-the propagation type are
-.BR MS_REC
-(described below) and
-.BR MS_SILENT
-(which is ignored).
+The capabilities of the program file (see
+.BR capabilities (7))
+are also ignored if any of the above are true.
+.PP
+The effective user ID of the process is copied to the saved set-user-ID;
+similarly, the effective group ID is copied to the saved set-group-ID.
+This copying takes place after any effective ID changes that occur
+because of the set-user-ID and set-group-ID mode bits.
+.PP
+The process's real UID and real GID, as well as its supplementary group IDs,
+are unchanged by a call to
+.BR execve ().
+.PP
+If the executable is an a.out dynamically linked
+binary executable containing
+shared-library stubs, the Linux dynamic linker
+.BR ld.so (8)
+is called at the start of execution to bring
+needed shared objects into memory
+and link the executable with them.
+.PP
+If the executable is a dynamically linked ELF executable, the
+interpreter named in the PT_INTERP segment is used to load the needed
+shared objects.
+This interpreter is typically
+.I /lib/ld\-linux.so.2
+for binaries linked with glibc (see
+.BR ld\-linux.so (8)).
+.\"
+.SS Effect on process attributes
+All process attributes are preserved during an
+.BR execve (),
+except the following:
+.IP * 3
+The dispositions of any signals that are being caught are
+reset to the default
+.RB ( signal (7)).
+.IP *
+Any alternate signal stack is not preserved
+.RB ( sigaltstack (2)).
+.IP *
+Memory mappings are not preserved
+.RB ( mmap (2)).
+.IP *
+Attached System\ V shared memory segments are detached
+.RB ( shmat (2)).
+.IP *
+POSIX shared memory regions are unmapped
+.RB ( shm_open (3)).
+.IP *
+Open POSIX message queue descriptors are closed
+.RB ( mq_overview (7)).
+.IP *
+Any open POSIX named semaphores are closed
+.RB ( sem_overview (7)).
+.IP *
+POSIX timers are not preserved
+.RB ( timer_create (2)).
+.IP *
+Any open directory streams are closed
+.RB ( opendir (3)).
+.IP *
+Memory locks are not preserved
+.RB ( mlock (2),
+.BR mlockall (2)).
+.IP *
+Exit handlers are not preserved
+.RB ( atexit (3),
+.BR on_exit (3)).
+.IP *
+The floating-point environment is reset to the default (see
+.BR fenv (3)).
+.PP
+The process attributes in the preceding list are all specified
+in POSIX.1.
+The following Linux-specific process attributes are also
+not preserved during an
+.BR execve ():
+.IP * 3
+The process's "dumpable" attribute is set to the value 1,
+unless a set-user-ID program, a set-group-ID program,
+or a program with capabilities is being executed,
+in which case the dumpable flag may instead be reset to the value in
+.IR /proc/sys/fs/suid_dumpable ,
+in the circumstances described under
+.BR PR_SET_DUMPABLE
+in
+.BR prctl (2).
+Note that changes to the "dumpable" attribute may cause ownership
+of files in the process's
+.IR /proc/[pid]
+directory to change to
+.IR root:root ,
+as described in
+.BR proc (5).
+.IP *
+The
+.BR prctl (2)
+.B PR_SET_KEEPCAPS
+flag is cleared.
+.IP *
+(Since Linux 2.4.36 / 2.6.23)
+If a set-user-ID or set-group-ID program is being executed,
+then the parent death signal set by
+.BR prctl (2)
+.B PR_SET_PDEATHSIG
+flag is cleared.
+.IP *
+The process name, as set by
+.BR prctl (2)
+.B PR_SET_NAME
+(and displayed by
+.IR "ps\ \-o comm" ),
+is reset to the name of the new executable file.
+.IP *
+The
+.B SECBIT_KEEP_CAPS
+.I securebits
+flag is cleared.
+See
+.BR capabilities (7).
+.IP *
+The termination signal is reset to
+.B SIGCHLD
+(see
+.BR clone (2)).
+.IP *
+The file descriptor table is unshared, undoing the effect of the
+.B CLONE_FILES
+flag of
+.BR clone (2).
+.PP
+Note the following further points:
+.IP * 3
+All threads other than the calling thread are destroyed during an
+.BR execve ().
+Mutexes, condition variables, and other pthreads objects are not preserved.
+.IP *
+The equivalent of \fIsetlocale(LC_ALL, "C")\fP
+is executed at program start-up.
+.IP *
+POSIX.1 specifies that the dispositions of any signals that
+are ignored or set to the default are left unchanged.
+POSIX.1 specifies one exception: if
+.B SIGCHLD
+is being ignored,
+then an implementation may leave the disposition unchanged or
+reset it to the default; Linux does the former.
+.IP *
+Any outstanding asynchronous I/O operations are canceled
+.RB ( aio_read (3),
+.BR aio_write (3)).
+.IP *
+For the handling of capabilities during
+.BR execve (),
+see
+.BR capabilities (7).
+.IP *
+By default, file descriptors remain open across an
+.BR execve ().
+File descriptors that are marked close-on-exec are closed;
+see the description of
+.B FD_CLOEXEC
+in
+.BR fcntl (2).
+(If a file descriptor is closed, this will cause the release
+of all record locks obtained on the underlying file by this process.
+See
+.BR fcntl (2)
+for details.)
+POSIX.1 says that if file descriptors 0, 1, and 2 would
+otherwise be closed after a successful
+.BR execve (),
+and the process would gain privilege because the set-user-ID or
+set-group-ID mode bit was set on the executed file,
+then the system may open an unspecified file for each of these
+file descriptors.
+As a general principle, no portable program, whether privileged or not,
+can assume that these three file descriptors will remain
+closed across an
+.BR execve ().
+.\" On Linux it appears that these file descriptors are
+.\" always open after an execve(), and it looks like
+.\" Solaris 8 and FreeBSD 6.1 are the same. -- mtk, 30 Apr 2007
+.SS Interpreter scripts
+An interpreter script is a text file that has execute
+permission enabled and whose first line is of the form:
+.PP
+.in +4n
+.EX
+\fB#!\fP\fIinterpreter \fP[optional-arg]
+.EE
+.in
 .PP
 The
-.IR source ,
-.IR filesystemtype ,
-and
-.IR data
-arguments are ignored.
+.I interpreter
+must be a valid pathname for an executable file.
 .PP
-The meanings of the propagation type flags are as follows:
-.TP
-.BR MS_SHARED
-Make this mount shared.
-Mount and unmount events immediately under this mount will propagate
-to the other mounts that are members of this mount's peer group.
-Propagation here means that the same mount or unmount will automatically
-occur under all of the other mounts in the peer group.
-Conversely, mount and unmount events that take place under
-peer mounts will propagate to this mount.
-.TP
-.BR MS_PRIVATE
-Make this mount private.
-Mount and unmount events do not propagate into or out of this mount.
-.TP
-.BR MS_SLAVE
-If this is a shared mount that is a member of a peer group
-that contains other members, convert it to a slave mount.
-If this is a shared mount that is a member of a peer group
-that contains no other members, convert it to a private mount.
-Otherwise, the propagation type of the mount is left unchanged.
-.IP
-When a mount is a slave,
-mount and unmount events propagate into this mount from
-the (master) shared peer group of which it was formerly a member.
-Mount and unmount events under this mount do not propagate to any peer.
-.IP
-A mount can be the slave of another peer group
-while at the same time sharing mount and unmount events
-with a peer group of which it is a member.
-.TP
-.BR MS_UNBINDABLE
-Make this mount unbindable.
-This is like a private mount,
-and in addition this mount can't be bind mounted.
-When a recursive bind mount
-.RB ( mount ()
-with the
-.BR MS_BIND
-and
-.BR MS_REC
-flags) is performed on a directory subtree,
-any unbindable mounts within the subtree are automatically pruned
-(i.e., not replicated)
-when replicating that subtree to produce the target subtree.
-.PP
-By default, changing the propagation type affects only the
-.I target
-mount.
 If the
-.B MS_REC
-flag is also specified in
-.IR mountflags ,
-then the propagation type of all mounts under
-.IR target
-is also changed.
+.I pathname
+argument of
+.BR execve ()
+specifies an interpreter script, then
+.I interpreter
+will be invoked with the following arguments:
 .PP
-For further details regarding mount propagation types
-(including the default propagation type assigned to new mounts), see
-.BR mount_namespaces (7).
-.\"
-.SS Moving a mount
-If
-.I mountflags
-contains the flag
-.BR MS_MOVE
-(available since Linux 2.4.18),
-then move a subtree:
-.I source
-specifies an existing mount and
-.I target
-specifies the new location to which that mount is to be relocated.
-The move is atomic: at no point is the subtree unmounted.
+.in +4n
+.EX
+\fIinterpreter\fP [optional-arg] \fIpathname\fP arg...
+.EE
+.in
 .PP
-The remaining bits in the
-.IR mountflags
-argument are ignored, as are the
-.IR filesystemtype
+where
+.I pathname
+is the pathname of the file specified as the first argument of
+.BR execve (),
 and
-.IR data
-arguments.
-.\"
-.SS Creating a new mount
-If none of
-.BR MS_REMOUNT ,
-.BR MS_BIND ,
-.BR MS_MOVE ,
-.BR MS_SHARED ,
-.BR MS_PRIVATE ,
-.BR MS_SLAVE ,
-or
-.BR MS_UNBINDABLE
-is specified in
-.IR mountflags ,
-then
-.BR mount ()
-performs its default action: creating a new mount.
-.IR source
-specifies the source for the new mount, and
-.IR target
-specifies the directory at which to create the mount point.
+.I arg...
+is the series of words pointed to by the
+.I argv
+argument of
+.BR execve (),
+starting at
+.IR argv[1] .
+Note that there is no way to get the
+.IR argv[0]
+that was passed to the
+.BR execve ()
+call.
+.\" See the P - preserve-argv[0] option.
+.\" Documentation/admin-guide/binfmt-misc.rst
+.\" https://www.kernel.org/doc/html/latest/admin-guide/binfmt-misc.html
 .PP
-The
-.I filesystemtype
-and
-.I data
-arguments are employed, and further bits may be specified in
-.IR mountflags
-to modify the behavior of the call.
-.\"
+For portable use,
+.I optional-arg
+should either be absent, or be specified as a single word (i.e., it
+should not contain white space); see NOTES below.
+.PP
+Since Linux 2.6.28,
+.\" commit bf2a9a39639b8b51377905397a5005f444e9a892
+the kernel permits the interpreter of a script to itself be a script.
+This permission is recursive, up to a limit of four recursions,
+so that the interpreter may be a script which is interpreted by a script,
+and so on.
+.SS Limits on size of arguments and environment
+Most UNIX implementations impose some limit on the total size
+of the command-line argument
+.RI ( argv )
+and environment
+.RI ( envp )
+strings that may be passed to a new program.
+POSIX.1 allows an implementation to advertise this limit using the
+.B ARG_MAX
+constant (either defined in
+.I <limits.h>
+or available at run time using the call
+.IR "sysconf(_SC_ARG_MAX)" ).
+.PP
+On Linux prior to kernel 2.6.23, the memory used to store the
+environment and argument strings was limited to 32 pages
+(defined by the kernel constant
+.BR MAX_ARG_PAGES ).
+On architectures with a 4-kB page size,
+this yields a maximum size of 128\ kB.
+.PP
+On kernel 2.6.23 and later, most architectures support a size limit
+derived from the soft
+.B RLIMIT_STACK
+resource limit (see
+.BR getrlimit (2))
+that is in force at the time of the
+.BR execve ()
+call.
+(Architectures with no memory management unit are excepted:
+they maintain the limit that was in effect before kernel 2.6.23.)
+This change allows programs to have a much larger
+argument and/or environment list.
+.\" For some background on the changes to ARG_MAX in kernels 2.6.23 and
+.\" 2.6.25, see:
+.\"     http://sourceware.org/bugzilla/show_bug.cgi?id=5786
+.\"     http://bugzilla.kernel.org/show_bug.cgi?id=10095
+.\"     http://thread.gmane.org/gmane.linux.kernel/646709/focus=648101,
+.\"     checked into 2.6.25 as commit a64e715fc74b1a7dcc5944f848acc38b2c4d4ee2.
+For these architectures, the total size is limited to 1/4 of the allowed
+stack size.
+(Imposing the 1/4-limit
+ensures that the new program always has some stack space.)
+.\" Ollie: That doesn't include the lists of pointers, though,
+.\" so the actual usage is a bit higher (1 pointer per argument).
+Additionally, the total size is limited to 3/4 of the value
+of the kernel constant
+.B _STK_LIM
+(8 MiB).
+Since Linux 2.6.25,
+the kernel also places a floor of 32 pages on this size limit,
+so that, even when
+.BR RLIMIT_STACK
+is set very low,
+applications are guaranteed to have at least as much argument and
+environment space as was provided by Linux 2.6.22 and earlier.
+(This guarantee was not provided in Linux 2.6.23 and 2.6.24.)
+Additionally, the limit per string is 32 pages (the kernel constant
+.BR MAX_ARG_STRLEN ),
+and the maximum number of strings is 0x7FFFFFFF.
 .SH RETURN VALUE
-On success, zero is returned.
-On error, \-1 is returned, and
+On success,
+.BR execve ()
+does not return, on error \-1 is returned, and
 .I errno
 is set to indicate the error.
 .SH ERRORS
-The error values given below result from filesystem type independent
-errors.
-Each filesystem type may have its own special errors and its
-own special behavior.
-See the Linux kernel source code for details.
+.TP
+.B E2BIG
+The total number of bytes in the environment
+.RI ( envp )
+and argument list
+.RI ( argv )
+is too large.
 .TP
 .B EACCES
-A component of a path was not searchable.
+Search permission is denied on a component of the path prefix of
+.I pathname
+or the name of a script interpreter.
 (See also
 .BR path_resolution (7).)
 .TP
 .B EACCES
-Mounting a read-only filesystem was attempted without giving the
-.B MS_RDONLY
-flag.
-.IP
-The filesystem may be read-only for various reasons, including:
-it resides on a read-only optical disk;
-it is resides on a device with a physical switch that has been set to
-mark the device read-only;
-the filesystem implementation was compiled with read-only support;
-or errors were detected when initially mounting the filesystem,
-so that it was marked read-only
-and can't be remounted as read-write (until the errors are fixed).
-.IP
-Some filesystems instead return the error
-.BR EROFS
-on an attempt to mount a read-only filesystem.
+The file or a script interpreter is not a regular file.
 .TP
 .B EACCES
-The block device
-.I source
-is located on a filesystem mounted with the
-.B MS_NODEV
-option.
-.\" mtk: Probably: write permission is required for MS_BIND, with
-.\" the error EPERM if not present; CAP_DAC_OVERRIDE is required.
+Execute permission is denied for the file or a script or ELF interpreter.
 .TP
-.B EBUSY
-An attempt was made to stack a new mount directly on
-top of an existing mount point that was created in this
-mount namespace with the same
-.I source
-and
-.IR target .
+.B EACCES
+The filesystem is mounted
+.IR noexec .
 .TP
-.B EBUSY
-.I source
-cannot be remounted read-only,
-because it still holds files open for writing.
+.BR EAGAIN " (since Linux 3.1)"
+.\" commit 72fa59970f8698023045ab0713d66f3f4f96945c
+Having changed its real UID using one of the
+.BR set*uid ()
+calls, the caller was\(emand is now still\(emabove its
+.BR RLIMIT_NPROC
+resource limit (see
+.BR setrlimit (2)).
+For a more detailed explanation of this error, see NOTES.
 .TP
 .B EFAULT
-One of the pointer arguments points outside the user address space.
-.TP
-.B EINVAL
-.I source
-had an invalid superblock.
-.TP
-.B EINVAL
-A remount operation
-.RB ( MS_REMOUNT )
-was attempted, but
-.I source
-was not already mounted on
-.IR target .
-.TP
-.B EINVAL
-A move operation
-.RB ( MS_MOVE )
-was attempted, but the mount tree under
-.I source
-includes unbindable mounts and
-.I target
-is a mount that has propagation type
-.BR MS_SHARED .
-.TP
-.B EINVAL
-A move operation
-.RB ( MS_MOVE )
-was attempted, but the parent mount of
-.I source
-mount has propagation type
-.BR MS_SHARED .
-.TP
-.B EINVAL
-A move operation
-.RB ( MS_MOVE )
-was attempted, but
-.I source
-was not a mount, or was \(aq/\(aq.
-.TP
-.B EINVAL
-A bind operation
-.RB ( MS_BIND )
-was requested where
-.I source
-referred a mount namespace magic link (i.e., a
-.I /proc/[pid]/ns/mnt
-magic link or a bind mount to such a link)
-and the propagation type of the parent mount of
-.I target
-was
-.BR MS_SHARED ,
-.\" See commit 8823c079ba7136dc1948d6f6dcb5f8022bde438e
-but propagation of the requested bind mount could lead to a circular
-dependency that might prevent the mount namespace from ever being freed.
-.TP
-.B EINVAL
-.I mountflags
-includes more than one of
-.BR MS_SHARED ,
-.BR MS_PRIVATE ,
-.BR MS_SLAVE ,
+.I pathname
+or one of the pointers in the vectors
+.I argv
 or
-.BR MS_UNBINDABLE .
+.I envp
+points outside your accessible address space.
 .TP
 .B EINVAL
-.I mountflags
-includes
-.BR MS_SHARED ,
-.BR MS_PRIVATE ,
-.BR MS_SLAVE ,
-or
-.BR MS_UNBINDABLE
-and also includes a flag other than
-.BR MS_REC
-or
-.BR MS_SILENT .
+An ELF executable had more than one PT_INTERP segment (i.e., tried to
+name more than one interpreter).
 .TP
-.BR EINVAL
-An attempt was made to bind mount an unbindable mount.
+.B EIO
+An I/O error occurred.
 .TP
-.BR EINVAL
-In an unprivileged mount namespace
-(i.e., a mount namespace owned by a user namespace
-that was created by an unprivileged user),
-a bind mount operation
-.RB ( MS_BIND )
-was attempted without specifying
-.RB ( MS_REC ),
-which would have revealed the filesystem tree underneath one of
-the submounts of the directory being bound.
+.B EISDIR
+An ELF interpreter was a directory.
+.TP
+.B ELIBBAD
+An ELF interpreter was not in a recognized format.
 .TP
 .B ELOOP
-Too many links encountered during pathname resolution.
+Too many symbolic links were encountered in resolving
+.I pathname
+or the name of a script or ELF interpreter.
 .TP
 .B ELOOP
-A move operation was attempted, and
-.I target
-is a descendant of
-.IR source .
+The maximum recursion limit was reached during recursive script
+interpretation (see "Interpreter scripts", above).
+Before Linux 3.8,
+.\" commit d740269867021faf4ce38a449353d2b986c34a67
+the error produced for this case was
+.BR ENOEXEC .
 .TP
 .B EMFILE
-(In case no block device is required:)
-Table of dummy devices is full.
+The per-process limit on the number of open file descriptors has been reached.
 .TP
 .B ENAMETOOLONG
-A pathname was longer than
-.BR MAXPATHLEN .
+.I pathname
+is too long.
 .TP
-.B ENODEV
-.I filesystemtype
-not configured in the kernel.
+.B ENFILE
+The system-wide limit on the total number of open files has been reached.
 .TP
 .B ENOENT
-A pathname was empty or had a nonexistent component.
+The file
+.I pathname
+or a script or ELF interpreter does not exist.
+.TP
+.B ENOEXEC
+An executable is not in a recognized format, is for the wrong
+architecture, or has some other format error that means it cannot be
+executed.
 .TP
 .B ENOMEM
-The kernel could not allocate a free page to copy filenames or data into.
-.TP
-.B ENOTBLK
-.I source
-is not a block device (and a device was required).
+Insufficient kernel memory was available.
 .TP
 .B ENOTDIR
-.IR target ,
-or a prefix of
-.IR source ,
-is not a directory.
-.TP
-.B ENXIO
-The major number of the block device
-.I source
-is out of range.
+A component of the path prefix of
+.I pathname
+or a script or ELF interpreter is not a directory.
 .TP
 .B EPERM
-The caller does not have the required privileges.
+The filesystem is mounted
+.IR nosuid ,
+the user is not the superuser,
+and the file has the set-user-ID or set-group-ID bit set.
 .TP
 .B EPERM
-An attempt was made to modify
-.RB ( MS_REMOUNT )
-the
-.BR MS_RDONLY ,
-.BR MS_NOSUID ,
-or
-.BR MS_NOEXEC
-flag, or one of the "atime" flags
-.RB ( MS_NOATIME ,
-.BR MS_NODIRATIME ,
-.BR MS_RELATIME )
-of an existing mount, but the mount is locked; see
-.BR mount_namespaces (7).
+The process is being traced, the user is not the superuser and the
+file has the set-user-ID or set-group-ID bit set.
 .TP
-.B EROFS
-Mounting a read-only filesystem was attempted without giving the
-.B MS_RDONLY
-flag.
+.B EPERM
+A "capability-dumb" applications would not obtain the full set of
+permitted capabilities granted by the executable file.
 See
-.BR EACCES ,
-above.
-.SH VERSIONS
-The definitions of
-.BR MS_DIRSYNC ,
-.BR MS_MOVE ,
-.BR MS_PRIVATE ,
-.BR MS_REC ,
-.BR MS_RELATIME ,
-.BR MS_SHARED ,
-.BR MS_SLAVE ,
-.BR MS_STRICTATIME ,
-and
-.BR MS_UNBINDABLE
-were added to glibc headers in version 2.12.
-.\"
+.BR capabilities (7).
+.TP
+.B ETXTBSY
+The specified executable was open for writing by one or more processes.
 .SH CONFORMING TO
-This function is Linux-specific and should not be used in
-programs intended to be portable.
+POSIX.1-2001, POSIX.1-2008, SVr4, 4.3BSD.
+POSIX does not document the #! behavior, but it exists
+(with some variations) on other UNIX systems.
+.\" SVr4 documents additional error
+.\" conditions EAGAIN, EINTR, ELIBACC, ENOLINK, EMULTIHOP; POSIX does not
+.\" document ETXTBSY, EPERM, EFAULT, ELOOP, EIO, ENFILE, EMFILE, EINVAL,
+.\" EISDIR or ELIBBAD error conditions.
 .SH NOTES
-Since Linux 2.4 a single filesystem can be mounted at
-multiple mount points, and multiple mounts can be stacked
-on the same mount point.
-.\" Multiple mounts on same mount point: since 2.3.99pre7.
+One sometimes sees
+.BR execve ()
+(and the related functions described in
+.BR exec (3))
+described as "executing a
+.I new
+process" (or similar).
+This is a highly misleading description:
+there is no new process;
+many attributes of the calling process remain unchanged
+(in particular, its PID).
+All that
+.BR execve ()
+does is arrange for an existing process (the calling process)
+to execute a new program.
 .PP
-The
-.I mountflags
-argument may have the magic number 0xC0ED (\fBMS_MGC_VAL\fP)
-in the top 16 bits.
-(All of the other flags discussed in DESCRIPTION
-occupy the low order 16 bits of
-.IR mountflags .)
-Specifying
-.BR MS_MGC_VAL
-was required in kernel versions prior to 2.4,
-but since Linux 2.4 is no longer required and is ignored if specified.
+Set-user-ID and set-group-ID processes can not be
+.BR ptrace (2)d.
 .PP
-The original
-.B MS_SYNC
-flag was renamed
-.B MS_SYNCHRONOUS
-in 1.1.69
-when a different
-.B MS_SYNC
-was added to \fI<mman.h>\fP.
+The result of mounting a filesystem
+.I nosuid
+varies across Linux kernel versions:
+some will refuse execution of set-user-ID and set-group-ID
+executables when this would
+give the user powers they did not have already (and return
+.BR EPERM ),
+some will just ignore the set-user-ID and set-group-ID bits and
+.BR exec ()
+successfully.
 .PP
-Before Linux 2.4 an attempt to execute a set-user-ID or set-group-ID program
-on a filesystem mounted with
-.B MS_NOSUID
-would fail with
-.BR EPERM .
-Since Linux 2.4 the set-user-ID and set-group-ID bits are
-just silently ignored in this case.
-.\" The change is in patch-2.4.0-prerelease.
-.\"
-.SS Mount namespaces
-Starting with kernel 2.4.19, Linux provides mount namespaces.
-A mount namespace is the set of filesystem mounts that
-are visible to a process.
-Mount namespaces can be (and usually are)
-shared between multiple processes,
-and changes to the namespace (i.e., mounts and unmounts) by one process
-are visible to all other processes sharing the same namespace.
-(The pre-2.4.19 Linux situation can be considered as one in which
-a single namespace was shared by every process on the system.)
-.PP
-A child process created by
-.BR fork (2)
-shares its parent's mount namespace;
-the mount namespace is preserved across an
-.BR execve (2).
-.PP
-A process can obtain a private mount namespace if:
-it was created using the
-.BR clone (2)
-.BR CLONE_NEWNS
-flag,
-in which case its new namespace is initialized to be a
-.I copy
-of the namespace of the process that called
-.BR clone (2);
-or it calls
-.BR unshare (2)
-with the
-.BR CLONE_NEWNS
-flag,
-which causes the caller's mount namespace to obtain a private copy
-of the namespace that it was previously sharing with other processes,
-so that future mounts and unmounts by the caller are invisible
-to other processes (except child processes that the caller
-subsequently creates) and vice versa.
-.PP
-For further details on mount namespaces, see
-.BR mount_namespaces (7).
-.\"
-.SS Parental relationship between mounts
-Each mount has a parent mount.
-The overall parental relationship of all mounts defines
-the single directory hierarchy seen by the processes within a mount namespace.
-.PP
-The parent of a new mount is defined when the mount is created.
-In the usual case,
-the parent of a new mount is the mount of the filesystem
-containing the directory or file at which the new mount is attached.
-In the case where a new mount is stacked on top of an existing mount,
-the parent of the new mount is the previous mount that was stacked
-at that location.
-.PP
-The parental relationship between mounts can be discovered via the
-.I /proc/[pid]/mountinfo
-file (see below).
-.\"
-.SS /proc/[pid]/mounts and /proc/[pid]/mountinfo
-The Linux-specific
-.I /proc/[pid]/mounts
-file exposes the list of mounts in the mount
-namespace of the process with the specified ID.
-The
-.I /proc/[pid]/mountinfo
-file exposes even more information about mounts,
-including the propagation type and mount ID information that makes it
-possible to discover the parental relationship between mounts.
-See
-.BR proc (5)
+On Linux,
+.I argv
 and
-.BR mount_namespaces (7)
-for details of this file.
+.I envp
+can be specified as NULL.
+In both cases, this has the same effect as specifying the argument
+as a pointer to a list containing a single null pointer.
+.B "Do not take advantage of this nonstandard and nonportable misfeature!"
+On many other UNIX systems, specifying
+.I argv
+as NULL will result in an error
+.RB ( EFAULT ).
+.I Some
+other UNIX systems treat the
+.I envp==NULL
+case the same as Linux.
+.\" e.g., EFAULT on Solaris 8 and FreeBSD 6.1; but
+.\" HP-UX 11 is like Linux -- mtk, Apr 2007
+.\" Bug filed 30 Apr 2007: http://bugzilla.kernel.org/show_bug.cgi?id=8408
+.\" Bug rejected (because fix would constitute an ABI change).
+.\"
+.PP
+POSIX.1 says that values returned by
+.BR sysconf (3)
+should be invariant over the lifetime of a process.
+However, since Linux 2.6.23, if the
+.BR RLIMIT_STACK
+resource limit changes, then the value reported by
+.B _SC_ARG_MAX
+will also change,
+to reflect the fact that the limit on space for holding
+command-line arguments and environment variables has changed.
+.PP
+In most cases where
+.BR execve ()
+fails, control returns to the original executable image,
+and the caller of
+.BR execve ()
+can then handle the error.
+However, in (rare) cases (typically caused by resource exhaustion),
+failure may occur past the point of no return:
+the original executable image has been torn down,
+but the new image could not be completely built.
+In such cases, the kernel kills the process with a
+.\" commit 19d860a140beac48a1377f179e693abe86a9dac9
+.BR SIGSEGV
+.RB ( SIGKILL
+until Linux 3.17)
+signal.
+.\"
+.SS Interpreter scripts
+The kernel imposes a maximum length on the text that follows the
+"#!" characters at the start of a script;
+characters beyond the limit are ignored.
+Before Linux 5.1, the limit is 127 characters.
+Since Linux 5.1,
+.\" commit 6eb3c3d0a52dca337e327ae8868ca1f44a712e02
+the limit is 255 characters.
+.PP
+The semantics of the
+.I optional-arg
+argument of an interpreter script vary across implementations.
+On Linux, the entire string following the
+.I interpreter
+name is passed as a single argument to the interpreter,
+and this string can include white space.
+However, behavior differs on some other systems.
+Some systems
+.\" e.g., Solaris 8
+use the first white space to terminate
+.IR optional-arg .
+On some systems,
+.\" e.g., FreeBSD before 6.0, but not FreeBSD 6.0 onward
+an interpreter script can have multiple arguments,
+and white spaces in
+.I optional-arg
+are used to delimit the arguments.
+.PP
+Linux (like most other modern UNIX systems)
+ignores the set-user-ID and set-group-ID bits on scripts.
+.\"
+.\" .SH BUGS
+.\" Some Linux versions have failed to check permissions on ELF
+.\" interpreters.  This is a security hole, because it allows users to
+.\" open any file, such as a rewinding tape device, for reading.  Some
+.\" Linux versions have also had other security holes in
+.\" .BR execve ()
+.\" that could be exploited for denial of service by a suitably crafted
+.\" ELF binary. There are no known problems with 2.0.34 or 2.2.15.
+.SS execve() and EAGAIN
+A more detailed explanation of the
+.BR EAGAIN
+error that can occur (since Linux 3.1) when calling
+.BR execve ()
+is as follows.
+.PP
+The
+.BR EAGAIN
+error can occur when a
+.I preceding
+call to
+.BR setuid (2),
+.BR setreuid (2),
+or
+.BR setresuid (2)
+caused the real user ID of the process to change,
+and that change caused the process to exceed its
+.BR RLIMIT_NPROC
+resource limit (i.e., the number of processes belonging
+to the new real UID exceeds the resource limit).
+From Linux 2.6.0 to 3.0, this caused the
+.BR set*uid ()
+call to fail.
+(Prior to 2.6,
+.\" commit 909cc4ae86f3380152a18e2a3c44523893ee11c4
+the resource limit was not imposed on processes that
+changed their user IDs.)
+.PP
+Since Linux 3.1, the scenario just described no longer causes the
+.BR set*uid ()
+call to fail,
+because it too often led to security holes where buggy applications
+didn't check the return status and assumed
+that\(emif the caller had root privileges\(emthe call would always succeed.
+Instead, the
+.BR set*uid ()
+calls now successfully change the real UID,
+but the kernel sets an internal flag, named
+.BR PF_NPROC_EXCEEDED ,
+to note that the
+.BR RLIMIT_NPROC
+resource limit has been exceeded.
+If the
+.BR PF_NPROC_EXCEEDED
+flag is set and the resource limit is still
+exceeded at the time of a subsequent
+.BR execve ()
+call, that call fails with the error
+.BR EAGAIN .
+This kernel logic ensures that the
+.BR RLIMIT_NPROC
+resource limit is still enforced for the
+common privileged daemon workflow\(emnamely,
+.BR fork (2)
++
+.BR set*uid ()
++
+.BR execve ().
+.PP
+If the resource limit was not still exceeded at the time of the
+.BR execve ()
+call
+(because other processes belonging to this real UID terminated between the
+.BR set*uid ()
+call and the
+.BR execve ()
+call), then the
+.BR execve ()
+call succeeds and the kernel clears the
+.BR PF_NPROC_EXCEEDED
+process flag.
+The flag is also cleared if a subsequent call to
+.BR fork (2)
+by this process succeeds.
+.SS Historical
+With UNIX\ V6, the argument list of an
+.BR exec ()
+call was ended by 0,
+while the argument list of
+.I main
+was ended by \-1.
+Thus, this argument list was not directly usable in a further
+.BR exec ()
+call.
+Since UNIX\ V7, both are NULL.
+.\"
+.\" .SH BUGS
+.\" Some Linux versions have failed to check permissions on ELF
+.\" interpreters.  This is a security hole, because it allows users to
+.\" open any file, such as a rewinding tape device, for reading.  Some
+.\" Linux versions have also had other security holes in
+.\" .BR execve ()
+.\" that could be exploited for denial of service by a suitably crafted
+.\" ELF binary. There are no known problems with 2.0.34 or 2.2.15.
+.SH EXAMPLES
+The following program is designed to be execed by the second program below.
+It just echoes its command-line arguments, one per line.
+.PP
+.in +4n
+.EX
+/* myecho.c */
+
+#include <stdio.h>
+#include <stdlib.h>
+
+int
+main(int argc, char *argv[])
+{
+    for (int j = 0; j < argc; j++)
+        printf("argv[%d]: %s\en", j, argv[j]);
+
+    exit(EXIT_SUCCESS);
+}
+.EE
+.in
+.PP
+This program can be used to exec the program named in its command-line
+argument:
+.PP
+.in +4n
+.EX
+/* execve.c */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+int
+main(int argc, char *argv[])
+{
+    char *newargv[] = { NULL, "hello", "world", NULL };
+    char *newenviron[] = { NULL };
+
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <file\-to\-exec>\en", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+
+    newargv[0] = argv[1];
+
+    execve(argv[1], newargv, newenviron);
+    perror("execve");   /* execve() returns only on error */
+    exit(EXIT_FAILURE);
+}
+.EE
+.in
+.PP
+We can use the second program to exec the first as follows:
+.PP
+.in +4n
+.EX
+.RB "$" " cc myecho.c \-o myecho"
+.RB "$" " cc execve.c \-o execve"
+.RB "$" " ./execve ./myecho"
+argv[0]: ./myecho
+argv[1]: hello
+argv[2]: world
+.EE
+.in
+.PP
+We can also use these programs to demonstrate the use of a script
+interpreter.
+To do this we create a script whose "interpreter" is our
+.I myecho
+program:
+.PP
+.in +4n
+.EX
+.RB "$" " cat > script"
+.B #!./myecho script\-arg
+.B \(haD
+.RB "$" " chmod +x script"
+.EE
+.in
+.PP
+We can then use our program to exec the script:
+.PP
+.in +4n
+.EX
+.RB "$" " ./execve ./script"
+argv[0]: ./myecho
+argv[1]: script\-arg
+argv[2]: ./script
+argv[3]: hello
+argv[4]: world
+.EE
+.in
 .SH SEE ALSO
-.BR mountpoint (1),
-.BR chroot (2),
-.BR ioctl_iflags (2),
-.BR mount_settatr (2),
-.BR pivot_root (2),
-.BR umount (2),
-.BR mount_namespaces (7),
+.BR chmod (2),
+.BR execveat (2),
+.BR fork (2),
+.BR get_robust_list (2),
+.BR ptrace (2),
+.BR exec (3),
+.BR fexecve (3),
+.BR getauxval (3),
+.BR getopt (3),
+.BR system (3),
+.BR capabilities (7),
+.BR credentials (7),
+.BR environ (7),
 .BR path_resolution (7),
-.BR findmnt (8),
-.BR lsblk (8),
-.BR mount (8),
-.BR umount (8)
+.BR ld.so (8)

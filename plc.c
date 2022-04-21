@@ -2,10 +2,6 @@
 #include <sys/sysinfo.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <openssl/sha.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
 #include <errno.h>
 #include <string.h>
 #include <sys/types.h>
@@ -26,7 +22,7 @@ int g_can_socket_connected = 0;
 int can_socket;
 volatile bool client_connected;
 
-int do_can_read(struct can_frame *frame)
+int can_do_read(struct can_frame *frame)
 {
     struct sockaddr_can addr;
     struct ifreq ifr;
@@ -115,7 +111,7 @@ void print_plc_status(int connfd)
         write(connfd, "\n[LT] Unable to connect to PLC!\n\n", 33);
         return;
     }
-    nbytes = do_can_read(&frame);
+    nbytes = can_do_read(&frame);
     if(nbytes < 0)
     {
         write(connfd, "\n[LT] No response received from PLC!\n\n", 38);
