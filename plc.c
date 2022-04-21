@@ -24,7 +24,7 @@ void * connection_handler(void *sock_desc);
 const char intro_message[] = "\n[LT] Welcome to the LT PLC\n[LT] Type HELP to see available commands.\n\n";
 int g_can_socket_connected = 0;
 int can_socket;
-volatile bool client_connected;
+volatile bool is_client_connected;
 
 int do_can_read(struct can_frame *frame)
 {
@@ -180,7 +180,7 @@ void *connection_handler(void *socket_desc)
     puts("Client disconnected");
     fflush(stdout);
     close(connfd);
-    client_connected = false;
+    is_client_connected = false;
 
     return 0;
 }
