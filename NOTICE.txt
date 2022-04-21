@@ -1,6 +1,6 @@
-.\" Copyright (c) 2016, IBM Corporation.
-.\" Written by Mike Rapoport <rppt@linux.vnet.ibm.com>
-.\" and Copyright (C) 2017 Michael Kerrisk <mtk.manpages@gmail.com>
+.\" Copyright (C) 1993 Rickard E. Faith <faith@cs.unc.edu>
+.\" and Copyright (C) 1994 Andries E. Brouwer <aeb@cwi.nl>
+.\" and Copyright (C) 2002, 2005, 2016 Michael Kerrisk <mtk.manpages@gmail.com>
 .\"
 .\" %%%LICENSE_START(VERBATIM)
 .\" Permission is granted to make and distribute verbatim copies of this
@@ -24,862 +24,963 @@
 .\" the source, must acknowledge the copyright and authors of this work.
 .\" %%%LICENSE_END
 .\"
-.TH USERFAULTFD 2 2021-03-22 "Linux" "Linux Programmer's Manual"
+.\" Modified 1996-11-04 by Eric S. Raymond <esr@thyrsus.com>
+.\" Modified 2001-10-13 by Michael Kerrisk <mtk.manpages@gmail.com>
+.\"	Added note on historical behavior of MS_NOSUID
+.\" Modified 2002-05-16 by Michael Kerrisk <mtk.manpages@gmail.com>
+.\"	Extensive changes and additions
+.\" Modified 2002-05-27 by aeb
+.\" Modified 2002-06-11 by Michael Kerrisk <mtk.manpages@gmail.com>
+.\"	Enhanced descriptions of MS_MOVE, MS_BIND, and MS_REMOUNT
+.\" Modified 2004-06-17 by Michael Kerrisk <mtk.manpages@gmail.com>
+.\" 2005-05-18, mtk, Added MNT_EXPIRE, plus a few other tidy-ups.
+.\" 2008-10-06, mtk: move umount*() material into separate umount.2 page.
+.\" 2008-10-06, mtk: Add discussion of namespaces.
+.\"
+.TH MOUNT 2 2021-08-27 "Linux" "Linux Programmer's Manual"
 .SH NAME
-userfaultfd \- create a file descriptor for handling page faults in user space
+mount \- mount filesystem
 .SH SYNOPSIS
 .nf
-.BR "#include <fcntl.h>" "            /* Definition of " O_* " constants */"
-.BR "#include <sys/syscall.h>" "      /* Definition of " SYS_* " constants */"
-.B #include <unistd.h>
+.B "#include <sys/mount.h>"
 .PP
-.BI "int syscall(SYS_userfaultfd, int " flags );
+.BI "int mount(const char *" source ", const char *" target ,
+.BI "          const char *" filesystemtype ", unsigned long " mountflags ,
+.BI "          const void *" data );
 .fi
-.PP
-.IR Note :
-glibc provides no wrapper for
-.BR userfaultfd (),
-necessitating the use of
-.BR syscall (2).
 .SH DESCRIPTION
-.BR userfaultfd ()
-creates a new userfaultfd object that can be used for delegation of page-fault
-handling to a user-space application,
-and returns a file descriptor that refers to the new object.
-The new userfaultfd object is configured using
-.BR ioctl (2).
+.BR mount ()
+attaches the filesystem specified by
+.I source
+(which is often a pathname referring to a device,
+but can also be the pathname of a directory or file,
+or a dummy string) to the location (a directory or file)
+specified by the pathname in
+.IR target .
 .PP
-Once the userfaultfd object is configured, the application can use
-.BR read (2)
-to receive userfaultfd notifications.
-The reads from userfaultfd may be blocking or non-blocking,
-depending on the value of
-.I flags
-used for the creation of the userfaultfd or subsequent calls to
-.BR fcntl (2).
+Appropriate privilege (Linux: the
+.B CAP_SYS_ADMIN
+capability) is required to mount filesystems.
 .PP
-The following values may be bitwise ORed in
-.IR flags
-to change the behavior of
-.BR userfaultfd ():
-.TP
-.BR O_CLOEXEC
-Enable the close-on-exec flag for the new userfaultfd file descriptor.
-See the description of the
-.B O_CLOEXEC
-flag in
-.BR open (2).
-.TP
-.BR O_NONBLOCK
-Enables non-blocking operation for the userfaultfd object.
-See the description of the
-.BR O_NONBLOCK
-flag in
-.BR open (2).
-.PP
-When the last file descriptor referring to a userfaultfd object is closed,
-all memory ranges that were registered with the object are unregistered
-and unread events are flushed.
-.\"
-.PP
-Userfaultfd supports two modes of registration:
-.TP
-.BR UFFDIO_REGISTER_MODE_MISSING " (since 4.10)"
-When registered with
-.B UFFDIO_REGISTER_MODE_MISSING
-mode, user-space will receive a page-fault notification
-when a missing page is accessed.
-The faulted thread will be stopped from execution until the page fault is
-resolved from user-space by either an
-.B UFFDIO_COPY
-or an
-.B UFFDIO_ZEROPAGE
-ioctl.
-.TP
-.BR UFFDIO_REGISTER_MODE_WP " (since 5.7)"
-When registered with
-.B UFFDIO_REGISTER_MODE_WP
-mode, user-space will receive a page-fault notification
-when a write-protected page is written.
-The faulted thread will be stopped from execution
-until user-space write-unprotects the page using an
-.B UFFDIO_WRITEPROTECT
-ioctl.
-.PP
-Multiple modes can be enabled at the same time for the same memory range.
-.PP
-Since Linux 4.14, a userfaultfd page-fault notification can selectively embed
-faulting thread ID information into the notification.
-One needs to enable this feature explicitly using the
-.B UFFD_FEATURE_THREAD_ID
-feature bit when initializing the userfaultfd context.
-By default, thread ID reporting is disabled.
-.SS Usage
-The userfaultfd mechanism is designed to allow a thread in a multithreaded
-program to perform user-space paging for the other threads in the process.
-When a page fault occurs for one of the regions registered
-to the userfaultfd object,
-the faulting thread is put to sleep and
-an event is generated that can be read via the userfaultfd file descriptor.
-The fault-handling thread reads events from this file descriptor and services
-them using the operations described in
-.BR ioctl_userfaultfd (2).
-When servicing the page fault events,
-the fault-handling thread can trigger a wake-up for the sleeping thread.
-.PP
-It is possible for the faulting threads and the fault-handling threads
-to run in the context of different processes.
-In this case, these threads may belong to different programs,
-and the program that executes the faulting threads
-will not necessarily cooperate with the program that handles the page faults.
-In such non-cooperative mode,
-the process that monitors userfaultfd and handles page faults
-needs to be aware of the changes in the virtual memory layout
-of the faulting process to avoid memory corruption.
-.PP
-Since Linux 4.11,
-userfaultfd can also notify the fault-handling threads about changes
-in the virtual memory layout of the faulting process.
-In addition, if the faulting process invokes
-.BR fork (2),
-the userfaultfd objects associated with the parent may be duplicated
-into the child process and the userfaultfd monitor will be notified
-(via the
-.B UFFD_EVENT_FORK
-described below)
-about the file descriptor associated with the userfault objects
-created for the child process,
-which allows the userfaultfd monitor to perform user-space paging
-for the child process.
-Unlike page faults which have to be synchronous and require an
-explicit or implicit wakeup,
-all other events are delivered asynchronously and
-the non-cooperative process resumes execution as
-soon as the userfaultfd manager executes
-.BR read (2).
-The userfaultfd manager should carefully synchronize calls to
-.B UFFDIO_COPY
-with the processing of events.
-.PP
-The current asynchronous model of the event delivery is optimal for
-single threaded non-cooperative userfaultfd manager implementations.
-.\" Regarding the preceding sentence, Mike Rapoport says:
-.\"     The major point here is that current events delivery model could be
-.\"     problematic for multi-threaded monitor. I even suspect that it would be
-.\"     impossible to ensure synchronization between page faults and non-page
-.\"     fault events in multi-threaded monitor.
-.\" .PP
-.\" FIXME elaborate about non-cooperating mode, describe its limitations
-.\" for kernels before 4.11, features added in 4.11
-.\" and limitations remaining in 4.11
-.\" Maybe it's worth adding a dedicated sub-section...
-.\"
-.PP
-Since Linux 5.7, userfaultfd is able to do
-synchronous page dirty tracking using the new write-protect register mode.
-One should check against the feature bit
-.B UFFD_FEATURE_PAGEFAULT_FLAG_WP
-before using this feature.
-Similar to the original userfaultfd missing mode, the write-protect mode will
-generate a userfaultfd notification when the protected page is written.
-The user needs to resolve the page fault by unprotecting the faulted page and
-kicking the faulted thread to continue.
-For more information,
-please refer to the "Userfaultfd write-protect mode" section.
-.\"
-.SS Userfaultfd operation
-After the userfaultfd object is created with
-.BR userfaultfd (),
-the application must enable it using the
-.B UFFDIO_API
-.BR ioctl (2)
-operation.
-This operation allows a handshake between the kernel and user space
-to determine the API version and supported features.
-This operation must be performed before any of the other
-.BR ioctl (2)
-operations described below (or those operations fail with the
-.BR EINVAL
-error).
-.PP
-After a successful
-.B UFFDIO_API
-operation,
-the application then registers memory address ranges using the
-.B UFFDIO_REGISTER
-.BR ioctl (2)
-operation.
-After successful completion of a
-.B UFFDIO_REGISTER
-operation,
-a page fault occurring in the requested memory range, and satisfying
-the mode defined at the registration time, will be forwarded by the kernel to
-the user-space application.
-The application can then use the
-.B UFFDIO_COPY
-or
-.B UFFDIO_ZEROPAGE
-.BR ioctl (2)
-operations to resolve the page fault.
-.PP
-Since Linux 4.14, if the application sets the
-.B UFFD_FEATURE_SIGBUS
-feature bit using the
-.B UFFDIO_API
-.BR ioctl (2),
-no page-fault notification will be forwarded to user space.
-Instead a
-.B SIGBUS
-signal is delivered to the faulting process.
-With this feature,
-userfaultfd can be used for robustness purposes to simply catch
-any access to areas within the registered address range that do not
-have pages allocated, without having to listen to userfaultfd events.
-No userfaultfd monitor will be required for dealing with such memory
-accesses.
-For example, this feature can be useful for applications that
-want to prevent the kernel from automatically allocating pages and filling
-holes in sparse files when the hole is accessed through a memory mapping.
+Values for the
+.I filesystemtype
+argument supported by the kernel are listed in
+.I /proc/filesystems
+(e.g., "btrfs", "ext4", "jfs", "xfs", "vfat", "fuse",
+"tmpfs", "cgroup", "proc", "mqueue", "nfs", "cifs", "iso9660").
+Further types may become available when the appropriate modules
+are loaded.
 .PP
 The
-.B UFFD_FEATURE_SIGBUS
-feature is implicitly inherited through
-.BR fork (2)
-if used in combination with
-.BR UFFD_FEATURE_FORK .
+.I data
+argument is interpreted by the different filesystems.
+Typically it is a string of comma-separated options
+understood by this filesystem.
+See
+.BR mount (8)
+for details of the options available for each filesystem type.
+This argument may be specified as NULL, if there are no options.
 .PP
-Details of the various
-.BR ioctl (2)
-operations can be found in
-.BR ioctl_userfaultfd (2).
+A call to
+.BR mount ()
+performs one of a number of general types of operation,
+depending on the bits specified in
+.IR mountflags .
+The choice of which operation to perform is determined by
+testing the bits set in
+.IR mountflags ,
+with the tests being conducted in the order listed here:
+.IP * 3
+Remount an existing mount:
+.IR mountflags
+includes
+.BR MS_REMOUNT .
+.IP *
+Create a bind mount:
+.IR mountflags
+includes
+.BR MS_BIND .
+.IP *
+Change the propagation type of an existing mount:
+.IR mountflags
+includes one of
+.BR MS_SHARED ,
+.BR MS_PRIVATE ,
+.BR MS_SLAVE ,
+or
+.BR MS_UNBINDABLE .
+.IP *
+Move an existing mount to a new location:
+.IR mountflags
+includes
+.BR MS_MOVE .
+.IP *
+Create a new mount:
+.IR mountflags
+includes none of the above flags.
 .PP
-Since Linux 4.11, events other than page-fault may enabled during
-.B UFFDIO_API
-operation.
-.PP
-Up to Linux 4.11,
-userfaultfd can be used only with anonymous private memory mappings.
-Since Linux 4.11,
-userfaultfd can be also used with hugetlbfs and shared memory mappings.
+Each of these operations is detailed later in this page.
+Further flags may be specified in
+.IR mountflags
+to modify the behavior of
+.BR mount (),
+as described below.
 .\"
-.SS Userfaultfd write-protect mode (since 5.7)
-Since Linux 5.7, userfaultfd supports write-protect mode.
-The user needs to first check availability of this feature using
-.B UFFDIO_API
-ioctl against the feature bit
-.B UFFD_FEATURE_PAGEFAULT_FLAG_WP
-before using this feature.
+.SS Additional mount flags
+The list below describes the additional flags that can be specified in
+.IR mountflags .
+Note that some operation types ignore some or all of these flags,
+as described later in this page.
+.\"
+.\" FIXME 2.6.25 Added MS_I_VERSION, which needs to be documented.
+.\" commit 7a224228ed79d587ece2304869000aad1b8e97dd
+.\" (This is a per-superblock flag)
+.\"
+.TP
+.BR MS_DIRSYNC " (since Linux 2.5.19)"
+Make directory changes on this filesystem synchronous.
+(This property can be obtained for individual directories
+or subtrees using
+.BR chattr (1).)
+.TP
+.BR MS_LAZYTIME " (since Linux 4.0)"
+.\" commit 0ae45f63d4ef8d8eeec49c7d8b44a1775fff13e8
+.\" commit fe032c422c5ba562ba9c2d316f55e258e03259c6
+.\" commit a26f49926da938f47561f386be56a83dd37a496d
+Reduce on-disk updates of inode timestamps (atime, mtime, ctime)
+by maintaining these changes only in memory.
+The on-disk timestamps are updated only when:
+.RS
+.IP (a) 4
+the inode needs to be updated for some change unrelated to file timestamps;
+.IP (b)
+the application employs
+.BR fsync (2),
+.BR syncfs (2),
+or
+.BR sync (2);
+.IP (c)
+an undeleted inode is evicted from memory; or
+.IP (d)
+more than 24 hours have passed since the inode was written to disk.
+.RE
+.IP
+This mount option significantly reduces writes
+needed to update the inode's timestamps, especially mtime and atime.
+However, in the event of a system crash, the atime and mtime fields
+on disk might be out of date by up to 24 hours.
+.IP
+Examples of workloads where this option could be of significant benefit
+include frequent random writes to preallocated files,
+as well as cases where the
+.B MS_STRICTATIME
+mount option is also enabled.
+(The advantage of combining
+.BR MS_STRICTATIME
+and
+.BR MS_LAZYTIME
+is that
+.BR stat (2)
+will return the correctly updated atime, but the atime updates
+will be flushed to disk only in the cases listed above.)
+.TP
+.B MS_MANDLOCK
+Permit mandatory locking on files in this filesystem.
+(Mandatory locking must still be enabled on a per-file basis,
+as described in
+.BR fcntl (2).)
+Since Linux 4.5,
+.\" commit 95ace75414f312f9a7b93d873f386987b92a5301
+this mount option requires the
+.B CAP_SYS_ADMIN
+capability and a kernel configured with the
+.B CONFIG_MANDATORY_FILE_LOCKING
+option.
+.TP
+.B MS_NOATIME
+Do not update access times for (all types of) files on this filesystem.
+.TP
+.B MS_NODEV
+Do not allow access to devices (special files) on this filesystem.
+.TP
+.B MS_NODIRATIME
+Do not update access times for directories on this filesystem.
+This flag provides a subset of the functionality provided by
+.BR MS_NOATIME ;
+that is,
+.BR MS_NOATIME
+implies
+.BR MS_NODIRATIME .
+.TP
+.B MS_NOEXEC
+Do not allow programs to be executed from this filesystem.
+.\" (Possibly useful for a filesystem that contains non-Linux executables.
+.\" Often used as a security feature, e.g., to make sure that restricted
+.\" users cannot execute files uploaded using ftp or so.)
+.TP
+.B MS_NOSUID
+Do not honor set-user-ID and set-group-ID bits or file capabilities
+when executing programs from this filesystem.
+In addition, SELinux domain
+transitions require the permission
+.IR nosuid_transition ,
+which in turn needs
+also the policy capability
+.IR nnp_nosuid_transition .
+.\" (This is a security feature to prevent users executing set-user-ID and
+.\" set-group-ID programs from removable disk devices.)
+.TP
+.B MS_RDONLY
+Mount filesystem read-only.
+.TP
+.BR MS_REC " (since Linux 2.4.11)"
+Used in conjunction with
+.BR MS_BIND
+to create a recursive bind mount,
+and in conjunction with the propagation type flags to recursively change
+the propagation type of all of the mounts in a subtree.
+See below for further details.
+.TP
+.BR MS_RELATIME " (since Linux 2.6.20)"
+When a file on this filesystem is accessed,
+update the file's last access time (atime) only if the current value
+of atime is less than or equal to the file's last modification time (mtime)
+or last status change time (ctime).
+This option is useful for programs, such as
+.BR mutt (1),
+that need to know when a file has been read since it was last modified.
+Since Linux 2.6.30, the kernel defaults to the behavior provided
+by this flag (unless
+.BR MS_NOATIME
+was specified), and the
+.B MS_STRICTATIME
+flag is required to obtain traditional semantics.
+In addition, since Linux 2.6.30,
+the file's last access time is always updated if it
+is more than 1 day old.
+.\" Matthew Garrett notes in the patch that added this behavior
+.\" that this lets utilities such as tmpreaper (which deletes
+.\" files based on last access time) work correctly.
+.TP
+.BR MS_SILENT " (since Linux 2.6.17)"
+Suppress the display of certain
+.RI ( printk ())
+warning messages in the kernel log.
+This flag supersedes the misnamed and obsolete
+.BR MS_VERBOSE
+flag (available since Linux 2.4.12), which has the same meaning.
+.TP
+.BR MS_STRICTATIME " (since Linux 2.6.30)"
+Always update the last access time (atime) when files on this
+filesystem are accessed.
+(This was the default behavior before Linux 2.6.30.)
+Specifying this flag overrides the effect of setting the
+.BR MS_NOATIME
+and
+.BR MS_RELATIME
+flags.
+.TP
+.B MS_SYNCHRONOUS
+Make writes on this filesystem synchronous (as though
+the
+.B O_SYNC
+flag to
+.BR open (2)
+was specified for all file opens to this filesystem).
+.TP
+.BR MS_NOSYMFOLLOW " (since Linux 5.10)"
+.\" dab741e0e02bd3c4f5e2e97be74b39df2523fc6e
+Do not follow symbolic links when resolving paths.
+Symbolic links can still be created,
+and
+.BR readlink (1),
+.BR readlink (2),
+.BR realpath (1),
+and
+.BR realpath (3)
+all still work properly.
 .PP
-To register with userfaultfd write-protect mode, the user needs to initiate the
-.B UFFDIO_REGISTER
-ioctl with mode
-.B UFFDIO_REGISTER_MODE_WP
-set.
-Note that it is legal to monitor the same memory range with multiple modes.
-For example, the user can do
-.B UFFDIO_REGISTER
-with the mode set to
-.BR "UFFDIO_REGISTER_MODE_MISSING | UFFDIO_REGISTER_MODE_WP" .
-When there is only
-.B UFFDIO_REGISTER_MODE_WP
-registered, user-space will
-.I not
-receive any notification when a missing page is written.
-Instead, user-space will receive a write-protect page-fault notification
-only when an existing but write-protected page got written.
+From Linux 2.4 onward, some of the above flags are
+settable on a per-mount basis,
+while others apply to the superblock of the mounted filesystem,
+meaning that all mounts of the same filesystem share those flags.
+(Previously, all of the flags were per-superblock.)
 .PP
-After the
-.B UFFDIO_REGISTER
-ioctl completed with
-.B UFFDIO_REGISTER_MODE_WP
-mode set,
-the user can write-protect any existing memory within the range using the ioctl
-.B UFFDIO_WRITEPROTECT
-where
-.I uffdio_writeprotect.mode
-should be set to
-.BR UFFDIO_WRITEPROTECT_MODE_WP .
+The per-mount-point flags are as follows:
+.IP * 3
+Since Linux 2.4:
+.BR MS_NODEV ", " MS_NOEXEC ", and " MS_NOSUID
+flags are settable on a per-mount-point basis.
+.IP *
+Additionally, since Linux 2.6.16:
+.B MS_NOATIME
+and
+.BR MS_NODIRATIME .
+.IP *
+Additionally, since Linux 2.6.20:
+.BR MS_RELATIME .
 .PP
-When a write-protect event happens,
-user-space will receive a page-fault notification whose
-.I uffd_msg.pagefault.flags
-will be with
-.B UFFD_PAGEFAULT_FLAG_WP
-flag set.
-Note: since only writes can trigger this kind of fault,
-write-protect notifications will always have the
-.B UFFD_PAGEFAULT_FLAG_WRITE
-bit set along with the
-.BR UFFD_PAGEFAULT_FLAG_WP
-bit.
+The following flags are per-superblock:
+.BR MS_DIRSYNC ,
+.BR MS_LAZYTIME ,
+.BR MS_MANDLOCK ,
+.BR MS_SILENT ,
+and
+.BR MS_SYNCHRONOUS .
+.\" And MS_I_VERSION?
+The initial settings of these flags are determined on the first
+mount of the filesystem, and will be shared by all subsequent mounts
+of the same filesystem.
+Subsequently, the settings of the flags can be changed
+via a remount operation (see below).
+Such changes will be visible via all mounts associated
+with the filesystem.
 .PP
-To resolve a write-protection page fault, the user should initiate another
-.B UFFDIO_WRITEPROTECT
-ioctl, whose
-.I uffd_msg.pagefault.flags
-should have the flag
-.B UFFDIO_WRITEPROTECT_MODE_WP
-cleared upon the faulted page or range.
+Since Linux 2.6.16,
+.B MS_RDONLY
+can be set or cleared on a per-mount-point basis as well as on
+the underlying filesystem superblock.
+The mounted filesystem will be writable only if neither the filesystem
+nor the mountpoint are flagged as read-only.
+.\"
+.SS Remounting an existing mount
+An existing mount may be remounted by specifying
+.B MS_REMOUNT
+in
+.IR mountflags .
+This allows you to change the
+.I mountflags
+and
+.I data
+of an existing mount without having to unmount and remount the filesystem.
+.I target
+should be the same value specified in the initial
+.BR mount ()
+call.
 .PP
-Write-protect mode supports only private anonymous memory.
-.SS Reading from the userfaultfd structure
-Each
-.BR read (2)
-from the userfaultfd file descriptor returns one or more
-.I uffd_msg
-structures, each of which describes a page-fault event
-or an event required for the non-cooperative userfaultfd usage:
+The
+.I source
+and
+.I filesystemtype
+arguments are ignored.
+.PP
+The
+.I mountflags
+and
+.I data
+arguments should match the values used in the original
+.BR mount ()
+call, except for those parameters that are being deliberately changed.
+.PP
+The following
+.I mountflags
+can be changed:
+.BR MS_LAZYTIME ,
+.\" FIXME
+.\" MS_LAZYTIME seems to be available only on a few filesystems,
+.\" and on ext4, it seems (from experiment that this flag
+.\" can only be enabled (but not disabled) on a remount.
+.\" The following code in ext4_remount() (kernel 4.17) seems to
+.\" confirm this:
+.\"
+.\"        if (*flags & SB_LAZYTIME)
+.\"                sb->s_flags |= SB_LAZYTIME;
+.BR MS_MANDLOCK ,
+.BR MS_NOATIME ,
+.BR MS_NODEV ,
+.BR MS_NODIRATIME ,
+.BR MS_NOEXEC ,
+.BR MS_NOSUID ,
+.BR MS_RELATIME ,
+.BR MS_RDONLY ,
+.BR MS_STRICTATIME
+(whose effect is to clear the
+.BR MS_NOATIME
+and
+.BR MS_RELATIME
+flags),
+and
+.BR MS_SYNCHRONOUS .
+Attempts to change the setting of the
+.\" See the definition of MS_RMT_MASK in include/uapi/linux/fs.h,
+.\" which excludes MS_DIRSYNC and MS_SILENT, although SB_DIRSYNC
+.\" and SB_SILENT are split out as per-superblock flags in do_mount()
+.\" (Linux 4.17 source code)
+.BR MS_DIRSYNC
+and
+.BR MS_SILENT
+flags during a remount are silently ignored.
+Note that changes to per-superblock flags are visible via
+all mounts of the associated filesystem
+(because the per-superblock flags are shared by all mounts).
+.PP
+Since Linux 3.17,
+.\" commit ffbc6f0ead47fa5a1dc9642b0331cb75c20a640e
+if none of
+.BR MS_NOATIME ,
+.BR MS_NODIRATIME ,
+.BR MS_RELATIME ,
+or
+.BR MS_STRICTATIME
+is specified in
+.IR mountflags ,
+then the remount operation preserves the existing values of these flags
+(rather than defaulting to
+.BR MS_RELATIME ).
+.PP
+Since Linux 2.6.26, the
+.B MS_REMOUNT
+flag can be used with
+.B MS_BIND
+to modify only the per-mount-point flags.
+.\" See https://lwn.net/Articles/281157/
+This is particularly useful for setting or clearing the "read-only"
+flag on a mount without changing the underlying filesystem.
+Specifying
+.IR mountflags
+as:
 .PP
 .in +4n
 .EX
-struct uffd_msg {
-    __u8  event;            /* Type of event */
-    ...
-    union {
-        struct {
-            __u64 flags;    /* Flags describing fault */
-            __u64 address;  /* Faulting address */
-            union {
-                __u32 ptid; /* Thread ID of the fault */
-            } feat;
-        } pagefault;
-
-        struct {            /* Since Linux 4.11 */
-            __u32 ufd;      /* Userfault file descriptor
-                               of the child process */
-        } fork;
-
-        struct {            /* Since Linux 4.11 */
-            __u64 from;     /* Old address of remapped area */
-            __u64 to;       /* New address of remapped area */
-            __u64 len;      /* Original mapping length */
-        } remap;
-
-        struct {            /* Since Linux 4.11 */
-            __u64 start;    /* Start address of removed area */
-            __u64 end;      /* End address of removed area */
-        } remove;
-        ...
-    } arg;
-
-    /* Padding fields omitted */
-} __packed;
+MS_REMOUNT | MS_BIND | MS_RDONLY
 .EE
 .in
 .PP
-If multiple events are available and the supplied buffer is large enough,
-.BR read (2)
-returns as many events as will fit in the supplied buffer.
-If the buffer supplied to
-.BR read (2)
-is smaller than the size of the
-.I uffd_msg
-structure, the
-.BR read (2)
-fails with the error
-.BR EINVAL .
+will make access through this mountpoint read-only, without affecting
+other mounts.
+.\"
+.SS Creating a bind mount
+If
+.I mountflags
+includes
+.BR MS_BIND
+(available since Linux 2.4),
+.\" since 2.4.0-test9
+then perform a bind mount.
+A bind mount makes a file or a directory subtree visible at
+another point within the single directory hierarchy.
+Bind mounts may cross filesystem boundaries and span
+.BR chroot (2)
+jails.
 .PP
-The fields set in the
-.I uffd_msg
-structure are as follows:
-.TP
-.I event
-The type of event.
-Depending of the event type,
-different fields of the
-.I arg
-union represent details required for the event processing.
-The non-page-fault events are generated only when appropriate feature
-is enabled during API handshake with
-.B UFFDIO_API
-.BR ioctl (2).
-.IP
-The following values can appear in the
-.I event
-field:
-.RS
-.TP
-.BR UFFD_EVENT_PAGEFAULT " (since Linux 4.3)"
-A page-fault event.
-The page-fault details are available in the
-.I pagefault
-field.
-.TP
-.BR UFFD_EVENT_FORK " (since Linux 4.11)"
-Generated when the faulting process invokes
-.BR fork (2)
-(or
-.BR clone (2)
-without the
-.BR CLONE_VM
-flag).
-The event details are available in the
-.I fork
-field.
-.\" FIXME describe duplication of userfault file descriptor during fork
-.TP
-.BR UFFD_EVENT_REMAP " (since Linux 4.11)"
-Generated when the faulting process invokes
-.BR mremap (2).
-The event details are available in the
-.I remap
-field.
-.TP
-.BR UFFD_EVENT_REMOVE " (since Linux 4.11)"
-Generated when the faulting process invokes
-.BR madvise (2)
-with
-.BR MADV_DONTNEED
-or
-.BR MADV_REMOVE
-advice.
-The event details are available in the
-.I remove
-field.
-.TP
-.BR UFFD_EVENT_UNMAP " (since Linux 4.11)"
-Generated when the faulting process unmaps a memory range,
-either explicitly using
-.BR munmap (2)
-or implicitly during
-.BR mmap (2)
-or
-.BR mremap (2).
-The event details are available in the
-.I remove
-field.
-.RE
-.TP
-.I pagefault.address
-The address that triggered the page fault.
-.TP
-.I pagefault.flags
-A bit mask of flags that describe the event.
-For
-.BR UFFD_EVENT_PAGEFAULT ,
-the following flag may appear:
-.RS
-.TP
-.B UFFD_PAGEFAULT_FLAG_WRITE
-If the address is in a range that was registered with the
-.B UFFDIO_REGISTER_MODE_MISSING
-flag (see
-.BR ioctl_userfaultfd (2))
-and this flag is set, this a write fault;
-otherwise it is a read fault.
-.TP
-.B UFFD_PAGEFAULT_FLAG_WP
-If the address is in a range that was registered with the
-.B UFFDIO_REGISTER_MODE_WP
-flag, when this bit is set, it means it is a write-protect fault.
-Otherwise it is a page-missing fault.
-.RE
-.TP
-.I pagefault.feat.pid
-The thread ID that triggered the page fault.
-.TP
-.I fork.ufd
-The file descriptor associated with the userfault object
-created for the child created by
-.BR fork (2).
-.TP
-.I remap.from
-The original address of the memory range that was remapped using
-.BR mremap (2).
-.TP
-.I remap.to
-The new address of the memory range that was remapped using
-.BR mremap (2).
-.TP
-.I remap.len
-The original length of the memory range that was remapped using
-.BR mremap (2).
-.TP
-.I remove.start
-The start address of the memory range that was freed using
-.BR madvise (2)
-or unmapped
-.TP
-.I remove.end
-The end address of the memory range that was freed using
-.BR madvise (2)
-or unmapped
-.PP
-A
-.BR read (2)
-on a userfaultfd file descriptor can fail with the following errors:
-.TP
-.B EINVAL
-The userfaultfd object has not yet been enabled using the
-.BR UFFDIO_API
-.BR ioctl (2)
-operation
-.PP
-If the
-.B O_NONBLOCK
-flag is enabled in the associated open file description,
-the userfaultfd file descriptor can be monitored with
-.BR poll (2),
-.BR select (2),
+The
+.IR filesystemtype
 and
-.BR epoll (7).
-When events are available, the file descriptor indicates as readable.
+.IR data
+arguments are ignored.
+.PP
+The remaining bits (other than
+.BR MS_REC ,
+described below) in the
+.I mountflags
+argument are also ignored.
+(The bind mount has the same mount options as
+the underlying mount.)
+However, see the discussion of remounting above,
+for a method of making an existing bind mount read-only.
+.PP
+By default, when a directory is bind mounted,
+only that directory is mounted;
+if there are any submounts under the directory tree,
+they are not bind mounted.
 If the
-.B O_NONBLOCK
-flag is not enabled, then
-.BR poll (2)
-(always) indicates the file as having a
-.BR POLLERR
-condition, and
-.BR select (2)
-indicates the file descriptor as both readable and writable.
-.\" FIXME What is the reason for this seemingly odd behavior with respect
-.\" to the O_NONBLOCK flag? (see userfaultfd_poll() in fs/userfaultfd.c).
-.\" Something needs to be said about this.
+.BR MS_REC
+flag is also specified, then a recursive bind mount operation is performed:
+all submounts under the
+.I source
+subtree (other than unbindable mounts)
+are also bind mounted at the corresponding location in the
+.I target
+subtree.
+.\"
+.SS Changing the propagation type of an existing mount
+If
+.IR mountflags
+includes one of
+.BR MS_SHARED ,
+.BR MS_PRIVATE ,
+.BR MS_SLAVE ,
+or
+.BR MS_UNBINDABLE
+(all available since Linux 2.6.15),
+then the propagation type of an existing mount is changed.
+If more than one of these flags is specified, an error results.
+.PP
+The only other flags that can be specified while changing
+the propagation type are
+.BR MS_REC
+(described below) and
+.BR MS_SILENT
+(which is ignored).
+.PP
+The
+.IR source ,
+.IR filesystemtype ,
+and
+.IR data
+arguments are ignored.
+.PP
+The meanings of the propagation type flags are as follows:
+.TP
+.BR MS_SHARED
+Make this mount shared.
+Mount and unmount events immediately under this mount will propagate
+to the other mounts that are members of this mount's peer group.
+Propagation here means that the same mount or unmount will automatically
+occur under all of the other mounts in the peer group.
+Conversely, mount and unmount events that take place under
+peer mounts will propagate to this mount.
+.TP
+.BR MS_PRIVATE
+Make this mount private.
+Mount and unmount events do not propagate into or out of this mount.
+.TP
+.BR MS_SLAVE
+If this is a shared mount that is a member of a peer group
+that contains other members, convert it to a slave mount.
+If this is a shared mount that is a member of a peer group
+that contains no other members, convert it to a private mount.
+Otherwise, the propagation type of the mount is left unchanged.
+.IP
+When a mount is a slave,
+mount and unmount events propagate into this mount from
+the (master) shared peer group of which it was formerly a member.
+Mount and unmount events under this mount do not propagate to any peer.
+.IP
+A mount can be the slave of another peer group
+while at the same time sharing mount and unmount events
+with a peer group of which it is a member.
+.TP
+.BR MS_UNBINDABLE
+Make this mount unbindable.
+This is like a private mount,
+and in addition this mount can't be bind mounted.
+When a recursive bind mount
+.RB ( mount ()
+with the
+.BR MS_BIND
+and
+.BR MS_REC
+flags) is performed on a directory subtree,
+any unbindable mounts within the subtree are automatically pruned
+(i.e., not replicated)
+when replicating that subtree to produce the target subtree.
+.PP
+By default, changing the propagation type affects only the
+.I target
+mount.
+If the
+.B MS_REC
+flag is also specified in
+.IR mountflags ,
+then the propagation type of all mounts under
+.IR target
+is also changed.
+.PP
+For further details regarding mount propagation types
+(including the default propagation type assigned to new mounts), see
+.BR mount_namespaces (7).
+.\"
+.SS Moving a mount
+If
+.I mountflags
+contains the flag
+.BR MS_MOVE
+(available since Linux 2.4.18),
+then move a subtree:
+.I source
+specifies an existing mount and
+.I target
+specifies the new location to which that mount is to be relocated.
+The move is atomic: at no point is the subtree unmounted.
+.PP
+The remaining bits in the
+.IR mountflags
+argument are ignored, as are the
+.IR filesystemtype
+and
+.IR data
+arguments.
+.\"
+.SS Creating a new mount
+If none of
+.BR MS_REMOUNT ,
+.BR MS_BIND ,
+.BR MS_MOVE ,
+.BR MS_SHARED ,
+.BR MS_PRIVATE ,
+.BR MS_SLAVE ,
+or
+.BR MS_UNBINDABLE
+is specified in
+.IR mountflags ,
+then
+.BR mount ()
+performs its default action: creating a new mount.
+.IR source
+specifies the source for the new mount, and
+.IR target
+specifies the directory at which to create the mount point.
+.PP
+The
+.I filesystemtype
+and
+.I data
+arguments are employed, and further bits may be specified in
+.IR mountflags
+to modify the behavior of the call.
+.\"
 .SH RETURN VALUE
-On success,
-.BR userfaultfd ()
-returns a new file descriptor that refers to the userfaultfd object.
+On success, zero is returned.
 On error, \-1 is returned, and
 .I errno
 is set to indicate the error.
 .SH ERRORS
+The error values given below result from filesystem type independent
+errors.
+Each filesystem type may have its own special errors and its
+own special behavior.
+See the Linux kernel source code for details.
+.TP
+.B EACCES
+A component of a path was not searchable.
+(See also
+.BR path_resolution (7).)
+.TP
+.B EACCES
+Mounting a read-only filesystem was attempted without giving the
+.B MS_RDONLY
+flag.
+.IP
+The filesystem may be read-only for various reasons, including:
+it resides on a read-only optical disk;
+it is resides on a device with a physical switch that has been set to
+mark the device read-only;
+the filesystem implementation was compiled with read-only support;
+or errors were detected when initially mounting the filesystem,
+so that it was marked read-only
+and can't be remounted as read-write (until the errors are fixed).
+.IP
+Some filesystems instead return the error
+.BR EROFS
+on an attempt to mount a read-only filesystem.
+.TP
+.B EACCES
+The block device
+.I source
+is located on a filesystem mounted with the
+.B MS_NODEV
+option.
+.\" mtk: Probably: write permission is required for MS_BIND, with
+.\" the error EPERM if not present; CAP_DAC_OVERRIDE is required.
+.TP
+.B EBUSY
+An attempt was made to stack a new mount directly on
+top of an existing mount point that was created in this
+mount namespace with the same
+.I source
+and
+.IR target .
+.TP
+.B EBUSY
+.I source
+cannot be remounted read-only,
+because it still holds files open for writing.
+.TP
+.B EFAULT
+One of the pointer arguments points outside the user address space.
 .TP
 .B EINVAL
-An unsupported value was specified in
-.IR flags .
+.I source
+had an invalid superblock.
 .TP
-.BR EMFILE
-The per-process limit on the number of open file descriptors has been
-reached
+.B EINVAL
+A remount operation
+.RB ( MS_REMOUNT )
+was attempted, but
+.I source
+was not already mounted on
+.IR target .
 .TP
-.B ENFILE
-The system-wide limit on the total number of open files has been
-reached.
+.B EINVAL
+A move operation
+.RB ( MS_MOVE )
+was attempted, but the mount tree under
+.I source
+includes unbindable mounts and
+.I target
+is a mount that has propagation type
+.BR MS_SHARED .
+.TP
+.B EINVAL
+A move operation
+.RB ( MS_MOVE )
+was attempted, but the parent mount of
+.I source
+mount has propagation type
+.BR MS_SHARED .
+.TP
+.B EINVAL
+A move operation
+.RB ( MS_MOVE )
+was attempted, but
+.I source
+was not a mount, or was \(aq/\(aq.
+.TP
+.B EINVAL
+A bind operation
+.RB ( MS_BIND )
+was requested where
+.I source
+referred a mount namespace magic link (i.e., a
+.I /proc/[pid]/ns/mnt
+magic link or a bind mount to such a link)
+and the propagation type of the parent mount of
+.I target
+was
+.BR MS_SHARED ,
+.\" See commit 8823c079ba7136dc1948d6f6dcb5f8022bde438e
+but propagation of the requested bind mount could lead to a circular
+dependency that might prevent the mount namespace from ever being freed.
+.TP
+.B EINVAL
+.I mountflags
+includes more than one of
+.BR MS_SHARED ,
+.BR MS_PRIVATE ,
+.BR MS_SLAVE ,
+or
+.BR MS_UNBINDABLE .
+.TP
+.B EINVAL
+.I mountflags
+includes
+.BR MS_SHARED ,
+.BR MS_PRIVATE ,
+.BR MS_SLAVE ,
+or
+.BR MS_UNBINDABLE
+and also includes a flag other than
+.BR MS_REC
+or
+.BR MS_SILENT .
+.TP
+.BR EINVAL
+An attempt was made to bind mount an unbindable mount.
+.TP
+.BR EINVAL
+In an unprivileged mount namespace
+(i.e., a mount namespace owned by a user namespace
+that was created by an unprivileged user),
+a bind mount operation
+.RB ( MS_BIND )
+was attempted without specifying
+.RB ( MS_REC ),
+which would have revealed the filesystem tree underneath one of
+the submounts of the directory being bound.
+.TP
+.B ELOOP
+Too many links encountered during pathname resolution.
+.TP
+.B ELOOP
+A move operation was attempted, and
+.I target
+is a descendant of
+.IR source .
+.TP
+.B EMFILE
+(In case no block device is required:)
+Table of dummy devices is full.
+.TP
+.B ENAMETOOLONG
+A pathname was longer than
+.BR MAXPATHLEN .
+.TP
+.B ENODEV
+.I filesystemtype
+not configured in the kernel.
+.TP
+.B ENOENT
+A pathname was empty or had a nonexistent component.
 .TP
 .B ENOMEM
-Insufficient kernel memory was available.
+The kernel could not allocate a free page to copy filenames or data into.
 .TP
-.BR EPERM " (since Linux 5.2)"
-.\" cefdca0a86be517bc390fc4541e3674b8e7803b0
-The caller is not privileged (does not have the
-.B CAP_SYS_PTRACE
-capability in the initial user namespace), and
-.I /proc/sys/vm/unprivileged_userfaultfd
-has the value 0.
+.B ENOTBLK
+.I source
+is not a block device (and a device was required).
+.TP
+.B ENOTDIR
+.IR target ,
+or a prefix of
+.IR source ,
+is not a directory.
+.TP
+.B ENXIO
+The major number of the block device
+.I source
+is out of range.
+.TP
+.B EPERM
+The caller does not have the required privileges.
+.TP
+.B EPERM
+An attempt was made to modify
+.RB ( MS_REMOUNT )
+the
+.BR MS_RDONLY ,
+.BR MS_NOSUID ,
+or
+.BR MS_NOEXEC
+flag, or one of the "atime" flags
+.RB ( MS_NOATIME ,
+.BR MS_NODIRATIME ,
+.BR MS_RELATIME )
+of an existing mount, but the mount is locked; see
+.BR mount_namespaces (7).
+.TP
+.B EROFS
+Mounting a read-only filesystem was attempted without giving the
+.B MS_RDONLY
+flag.
+See
+.BR EACCES ,
+above.
 .SH VERSIONS
-The
-.BR userfaultfd ()
-system call first appeared in Linux 4.3.
-.PP
-The support for hugetlbfs and shared memory areas and
-non-page-fault events was added in Linux 4.11
+The definitions of
+.BR MS_DIRSYNC ,
+.BR MS_MOVE ,
+.BR MS_PRIVATE ,
+.BR MS_REC ,
+.BR MS_RELATIME ,
+.BR MS_SHARED ,
+.BR MS_SLAVE ,
+.BR MS_STRICTATIME ,
+and
+.BR MS_UNBINDABLE
+were added to glibc headers in version 2.12.
+.\"
 .SH CONFORMING TO
-.BR userfaultfd ()
-is Linux-specific and should not be used in programs intended to be
-portable.
+This function is Linux-specific and should not be used in
+programs intended to be portable.
 .SH NOTES
-The userfaultfd mechanism can be used as an alternative to
-traditional user-space paging techniques based on the use of the
-.BR SIGSEGV
-signal and
-.BR mmap (2).
-It can also be used to implement lazy restore
-for checkpoint/restore mechanisms,
-as well as post-copy migration to allow (nearly) uninterrupted execution
-when transferring virtual machines and Linux containers
-from one host to another.
-.SH BUGS
-If the
-.B UFFD_FEATURE_EVENT_FORK
-is enabled and a system call from the
+Since Linux 2.4 a single filesystem can be mounted at
+multiple mount points, and multiple mounts can be stacked
+on the same mount point.
+.\" Multiple mounts on same mount point: since 2.3.99pre7.
+.PP
+The
+.I mountflags
+argument may have the magic number 0xC0ED (\fBMS_MGC_VAL\fP)
+in the top 16 bits.
+(All of the other flags discussed in DESCRIPTION
+occupy the low order 16 bits of
+.IR mountflags .)
+Specifying
+.BR MS_MGC_VAL
+was required in kernel versions prior to 2.4,
+but since Linux 2.4 is no longer required and is ignored if specified.
+.PP
+The original
+.B MS_SYNC
+flag was renamed
+.B MS_SYNCHRONOUS
+in 1.1.69
+when a different
+.B MS_SYNC
+was added to \fI<mman.h>\fP.
+.PP
+Before Linux 2.4 an attempt to execute a set-user-ID or set-group-ID program
+on a filesystem mounted with
+.B MS_NOSUID
+would fail with
+.BR EPERM .
+Since Linux 2.4 the set-user-ID and set-group-ID bits are
+just silently ignored in this case.
+.\" The change is in patch-2.4.0-prerelease.
+.\"
+.SS Mount namespaces
+Starting with kernel 2.4.19, Linux provides mount namespaces.
+A mount namespace is the set of filesystem mounts that
+are visible to a process.
+Mount namespaces can be (and usually are)
+shared between multiple processes,
+and changes to the namespace (i.e., mounts and unmounts) by one process
+are visible to all other processes sharing the same namespace.
+(The pre-2.4.19 Linux situation can be considered as one in which
+a single namespace was shared by every process on the system.)
+.PP
+A child process created by
 .BR fork (2)
-family is interrupted by a signal or failed, a stale userfaultfd descriptor
-might be created.
-In this case, a spurious
-.B UFFD_EVENT_FORK
-will be delivered to the userfaultfd monitor.
-.SH EXAMPLES
-The program below demonstrates the use of the userfaultfd mechanism.
-The program creates two threads, one of which acts as the
-page-fault handler for the process, for the pages in a demand-page zero
-region created using
-.BR mmap (2).
+shares its parent's mount namespace;
+the mount namespace is preserved across an
+.BR execve (2).
 .PP
-The program takes one command-line argument,
-which is the number of pages that will be created in a mapping
-whose page faults will be handled via userfaultfd.
-After creating a userfaultfd object,
-the program then creates an anonymous private mapping of the specified size
-and registers the address range of that mapping using the
-.B UFFDIO_REGISTER
-.BR ioctl (2)
-operation.
-The program then creates a second thread that will perform the
-task of handling page faults.
+A process can obtain a private mount namespace if:
+it was created using the
+.BR clone (2)
+.BR CLONE_NEWNS
+flag,
+in which case its new namespace is initialized to be a
+.I copy
+of the namespace of the process that called
+.BR clone (2);
+or it calls
+.BR unshare (2)
+with the
+.BR CLONE_NEWNS
+flag,
+which causes the caller's mount namespace to obtain a private copy
+of the namespace that it was previously sharing with other processes,
+so that future mounts and unmounts by the caller are invisible
+to other processes (except child processes that the caller
+subsequently creates) and vice versa.
 .PP
-The main thread then walks through the pages of the mapping fetching
-bytes from successive pages.
-Because the pages have not yet been accessed,
-the first access of a byte in each page will trigger a page-fault event
-on the userfaultfd file descriptor.
+For further details on mount namespaces, see
+.BR mount_namespaces (7).
+.\"
+.SS Parental relationship between mounts
+Each mount has a parent mount.
+The overall parental relationship of all mounts defines
+the single directory hierarchy seen by the processes within a mount namespace.
 .PP
-Each of the page-fault events is handled by the second thread,
-which sits in a loop processing input from the userfaultfd file descriptor.
-In each loop iteration, the second thread first calls
-.BR poll (2)
-to check the state of the file descriptor,
-and then reads an event from the file descriptor.
-All such events should be
-.B UFFD_EVENT_PAGEFAULT
-events,
-which the thread handles by copying a page of data into
-the faulting region using the
-.B UFFDIO_COPY
-.BR ioctl (2)
-operation.
+The parent of a new mount is defined when the mount is created.
+In the usual case,
+the parent of a new mount is the mount of the filesystem
+containing the directory or file at which the new mount is attached.
+In the case where a new mount is stacked on top of an existing mount,
+the parent of the new mount is the previous mount that was stacked
+at that location.
 .PP
-The following is an example of what we see when running the program:
-.PP
-.in +4n
-.EX
-$ \fB./userfaultfd_demo 3\fP
-Address returned by mmap() = 0x7fd30106c000
-
-fault_handler_thread():
-    poll() returns: nready = 1; POLLIN = 1; POLLERR = 0
-    UFFD_EVENT_PAGEFAULT event: flags = 0; address = 7fd30106c00f
-        (uffdio_copy.copy returned 4096)
-Read address 0x7fd30106c00f in main(): A
-Read address 0x7fd30106c40f in main(): A
-Read address 0x7fd30106c80f in main(): A
-Read address 0x7fd30106cc0f in main(): A
-
-fault_handler_thread():
-    poll() returns: nready = 1; POLLIN = 1; POLLERR = 0
-    UFFD_EVENT_PAGEFAULT event: flags = 0; address = 7fd30106d00f
-        (uffdio_copy.copy returned 4096)
-Read address 0x7fd30106d00f in main(): B
-Read address 0x7fd30106d40f in main(): B
-Read address 0x7fd30106d80f in main(): B
-Read address 0x7fd30106dc0f in main(): B
-
-fault_handler_thread():
-    poll() returns: nready = 1; POLLIN = 1; POLLERR = 0
-    UFFD_EVENT_PAGEFAULT event: flags = 0; address = 7fd30106e00f
-        (uffdio_copy.copy returned 4096)
-Read address 0x7fd30106e00f in main(): C
-Read address 0x7fd30106e40f in main(): C
-Read address 0x7fd30106e80f in main(): C
-Read address 0x7fd30106ec0f in main(): C
-.EE
-.in
-.SS Program source
-\&
-.EX
-/* userfaultfd_demo.c
-
-   Licensed under the GNU General Public License version 2 or later.
-*/
-#define _GNU_SOURCE
-#include <inttypes.h>
-#include <sys/types.h>
-#include <stdio.h>
-#include <linux/userfaultfd.h>
-#include <pthread.h>
-#include <errno.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <fcntl.h>
-#include <signal.h>
-#include <poll.h>
-#include <string.h>
-#include <sys/mman.h>
-#include <sys/syscall.h>
-#include <sys/ioctl.h>
-#include <poll.h>
-
-#define errExit(msg)    do { perror(msg); exit(EXIT_FAILURE); \e
-                        } while (0)
-
-static int page_size;
-
-static void *
-fault_handler_thread(void *arg)
-{
-    static struct uffd_msg msg;   /* Data read from userfaultfd */
-    static int fault_cnt = 0;     /* Number of faults so far handled */
-    long uffd;                    /* userfaultfd file descriptor */
-    static char *page = NULL;
-    struct uffdio_copy uffdio_copy;
-    ssize_t nread;
-
-    uffd = (long) arg;
-
-    /* Create a page that will be copied into the faulting region. */
-
-    if (page == NULL) {
-        page = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
-                    MAP_PRIVATE | MAP_ANONYMOUS, \-1, 0);
-        if (page == MAP_FAILED)
-            errExit("mmap");
-    }
-
-    /* Loop, handling incoming events on the userfaultfd
-       file descriptor. */
-
-    for (;;) {
-
-        /* See what poll() tells us about the userfaultfd. */
-
-        struct pollfd pollfd;
-        int nready;
-        pollfd.fd = uffd;
-        pollfd.events = POLLIN;
-        nready = poll(&pollfd, 1, \-1);
-        if (nready == \-1)
-            errExit("poll");
-
-        printf("\enfault_handler_thread():\en");
-        printf("    poll() returns: nready = %d; "
-                "POLLIN = %d; POLLERR = %d\en", nready,
-                (pollfd.revents & POLLIN) != 0,
-                (pollfd.revents & POLLERR) != 0);
-
-        /* Read an event from the userfaultfd. */
-
-        nread = read(uffd, &msg, sizeof(msg));
-        if (nread == 0) {
-            printf("EOF on userfaultfd!\en");
-            exit(EXIT_FAILURE);
-        }
-
-        if (nread == \-1)
-            errExit("read");
-
-        /* We expect only one kind of event; verify that assumption. */
-
-        if (msg.event != UFFD_EVENT_PAGEFAULT) {
-            fprintf(stderr, "Unexpected event on userfaultfd\en");
-            exit(EXIT_FAILURE);
-        }
-
-        /* Display info about the page\-fault event. */
-
-        printf("    UFFD_EVENT_PAGEFAULT event: ");
-        printf("flags = %"PRIx64"; ", msg.arg.pagefault.flags);
-        printf("address = %"PRIx64"\en", msg.arg.pagefault.address);
-
-        /* Copy the page pointed to by \(aqpage\(aq into the faulting
-           region. Vary the contents that are copied in, so that it
-           is more obvious that each fault is handled separately. */
-
-        memset(page, \(aqA\(aq + fault_cnt % 20, page_size);
-        fault_cnt++;
-
-        uffdio_copy.src = (unsigned long) page;
-
-        /* We need to handle page faults in units of pages(!).
-           So, round faulting address down to page boundary. */
-
-        uffdio_copy.dst = (unsigned long) msg.arg.pagefault.address &
-                                           \(ti(page_size \- 1);
-        uffdio_copy.len = page_size;
-        uffdio_copy.mode = 0;
-        uffdio_copy.copy = 0;
-        if (ioctl(uffd, UFFDIO_COPY, &uffdio_copy) == \-1)
-            errExit("ioctl\-UFFDIO_COPY");
-
-        printf("        (uffdio_copy.copy returned %"PRId64")\en",
-                uffdio_copy.copy);
-    }
-}
-
-int
-main(int argc, char *argv[])
-{
-    long uffd;          /* userfaultfd file descriptor */
-    char *addr;         /* Start of region handled by userfaultfd */
-    uint64_t len;       /* Length of region handled by userfaultfd */
-    pthread_t thr;      /* ID of thread that handles page faults */
-    struct uffdio_api uffdio_api;
-    struct uffdio_register uffdio_register;
-    int s;
-
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s num\-pages\en", argv[0]);
-        exit(EXIT_FAILURE);
-    }
-
-    page_size = sysconf(_SC_PAGE_SIZE);
-    len = strtoull(argv[1], NULL, 0) * page_size;
-
-    /* Create and enable userfaultfd object. */
-
-    uffd = syscall(__NR_userfaultfd, O_CLOEXEC | O_NONBLOCK);
-    if (uffd == \-1)
-        errExit("userfaultfd");
-
-    uffdio_api.api = UFFD_API;
-    uffdio_api.features = 0;
-    if (ioctl(uffd, UFFDIO_API, &uffdio_api) == \-1)
-        errExit("ioctl\-UFFDIO_API");
-
-    /* Create a private anonymous mapping. The memory will be
-       demand\-zero paged\-\-that is, not yet allocated. When we
-       actually touch the memory, it will be allocated via
-       the userfaultfd. */
-
-    addr = mmap(NULL, len, PROT_READ | PROT_WRITE,
-                MAP_PRIVATE | MAP_ANONYMOUS, \-1, 0);
-    if (addr == MAP_FAILED)
-        errExit("mmap");
-
-    printf("Address returned by mmap() = %p\en", addr);
-
-    /* Register the memory range of the mapping we just created for
-       handling by the userfaultfd object. In mode, we request to track
-       missing pages (i.e., pages that have not yet been faulted in). */
-
-    uffdio_register.range.start = (unsigned long) addr;
-    uffdio_register.range.len = len;
-    uffdio_register.mode = UFFDIO_REGISTER_MODE_MISSING;
-    if (ioctl(uffd, UFFDIO_REGISTER, &uffdio_register) == \-1)
-        errExit("ioctl\-UFFDIO_REGISTER");
-
-    /* Create a thread that will process the userfaultfd events. */
-
-    s = pthread_create(&thr, NULL, fault_handler_thread, (void *) uffd);
-    if (s != 0) {
-        errno = s;
-        errExit("pthread_create");
-    }
-
-    /* Main thread now touches memory in the mapping, touching
-       locations 1024 bytes apart. This will trigger userfaultfd
-       events for all pages in the region. */
-
-    int l;
-    l = 0xf;    /* Ensure that faulting address is not on a page
-                   boundary, in order to test that we correctly
-                   handle that case in fault_handling_thread(). */
-    while (l < len) {
-        char c = addr[l];
-        printf("Read address %p in main(): ", addr + l);
-        printf("%c\en", c);
-        l += 1024;
-        usleep(100000);         /* Slow things down a little */
-    }
-
-    exit(EXIT_SUCCESS);
-}
-.EE
+The parental relationship between mounts can be discovered via the
+.I /proc/[pid]/mountinfo
+file (see below).
+.\"
+.SS /proc/[pid]/mounts and /proc/[pid]/mountinfo
+The Linux-specific
+.I /proc/[pid]/mounts
+file exposes the list of mounts in the mount
+namespace of the process with the specified ID.
+The
+.I /proc/[pid]/mountinfo
+file exposes even more information about mounts,
+including the propagation type and mount ID information that makes it
+possible to discover the parental relationship between mounts.
+See
+.BR proc (5)
+and
+.BR mount_namespaces (7)
+for details of this file.
 .SH SEE ALSO
-.BR fcntl (2),
-.BR ioctl (2),
-.BR ioctl_userfaultfd (2),
-.BR madvise (2),
-.BR mmap (2)
-.PP
-.IR Documentation/admin\-guide/mm/userfaultfd.rst
-in the Linux kernel source tree
+.BR mountpoint (1),
+.BR chroot (2),
+.BR ioctl_iflags (2),
+.BR mount_settatr (2),
+.BR pivot_root (2),
+.BR umount (2),
+.BR mount_namespaces (7),
+.BR path_resolution (7),
+.BR findmnt (8),
+.BR lsblk (8),
+.BR mount (8),
+.BR umount (8)
