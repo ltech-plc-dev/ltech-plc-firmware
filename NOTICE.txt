@@ -1,6 +1,5 @@
-.\" Copyright (c) 1994,1995 Mike Battersby <mib@deakin.edu.au>
-.\" and Copyright 2004, 2005 Michael Kerrisk <mtk.manpages@gmail.com>
-.\" based on work by faith@cs.unc.edu
+.\" Copyright (C) 1996 Andries Brouwer <aeb@cwi.nl>
+.\" and Copyright (C) 2006, 2007 Michael Kerrisk <mtk.manpages@gmail.com>
 .\"
 .\" %%%LICENSE_START(VERBATIM)
 .\" Permission is granted to make and distribute verbatim copies of this
@@ -24,1189 +23,1021 @@
 .\" the source, must acknowledge the copyright and authors of this work.
 .\" %%%LICENSE_END
 .\"
-.\" Modified, aeb, 960424
-.\" Modified Fri Jan 31 17:31:20 1997 by Eric S. Raymond <esr@thyrsus.com>
-.\" Modified Thu Nov 26 02:12:45 1998 by aeb - add SIGCHLD stuff.
-.\" Modified Sat May  8 17:40:19 1999 by Matthew Wilcox
-.\"	add POSIX.1b signals
-.\" Modified Sat Dec 29 01:44:52 2001 by Evan Jones <ejones@uwaterloo.ca>
-.\"	SA_ONSTACK
-.\" Modified 2004-11-11 by Michael Kerrisk <mtk.manpages@gmail.com>
-.\"	Added mention of SIGCONT under SA_NOCLDSTOP
-.\"	Added SA_NOCLDWAIT
-.\" Modified 2004-11-17 by Michael Kerrisk <mtk.manpages@gmail.com>
-.\"	Updated discussion for POSIX.1-2001 and SIGCHLD and sa_flags.
-.\"	Formatting fixes
-.\" 2004-12-09, mtk, added SI_TKILL + other minor changes
-.\" 2005-09-15, mtk, split sigpending(), sigprocmask(), sigsuspend()
-.\"	out of this page into separate pages.
-.\" 2010-06-11 Andi Kleen, add hwpoison signal extensions
-.\" 2010-06-11 mtk, improvements to discussion of various siginfo_t fields.
-.\" 2015-01-17, Kees Cook <keescook@chromium.org>
-.\"	Added notes on ptrace SIGTRAP and SYS_SECCOMP.
+.\" Modified 1997-01-31 by Eric S. Raymond <esr@thyrsus.com>
+.\" Modified 2000-03-25 by Jim Van Zandt <jrv@vanzandt.mv.com>
+.\" Modified 2001-10-04 by John Levon <moz@compsoc.man.ac.uk>
+.\" Modified 2003-02-02 by Andi Kleen <ak@muc.de>
+.\" Modified 2003-05-21 by Michael Kerrisk <mtk.manpages@gmail.com>
+.\"	MAP_LOCKED works from 2.5.37
+.\" Modified 2004-06-17 by Michael Kerrisk <mtk.manpages@gmail.com>
+.\" Modified 2004-09-11 by aeb
+.\" Modified 2004-12-08, from Eric Estievenart <eric.estievenart@free.fr>
+.\" Modified 2004-12-08, mtk, formatting tidy-ups
+.\" Modified 2006-12-04, mtk, various parts rewritten
+.\" 2007-07-10, mtk, Added an example program.
+.\" 2008-11-18, mtk, document MAP_STACK
 .\"
-.TH SIGACTION 2 2021-08-27 "Linux" "Linux Programmer's Manual"
+.TH MMAP 2 2021-03-22 "Linux" "Linux Programmer's Manual"
 .SH NAME
-sigaction, rt_sigaction \- examine and change a signal action
+mmap, munmap \- map or unmap files or devices into memory
 .SH SYNOPSIS
 .nf
-.B #include <signal.h>
+.B #include <sys/mman.h>
 .PP
-.BI "int sigaction(int " signum ", const struct sigaction *restrict " act ,
-.BI "              struct sigaction *restrict " oldact );
+.BI "void *mmap(void *" addr ", size_t " length \
+", int " prot ", int " flags ,
+.BI "           int " fd ", off_t " offset );
+.BI "int munmap(void *" addr ", size_t " length );
 .fi
 .PP
-.RS -4
-Feature Test Macro Requirements for glibc (see
-.BR feature_test_macros (7)):
-.RE
-.PP
-.BR sigaction ():
-.nf
-    _POSIX_C_SOURCE
-.fi
-.PP
-.IR siginfo_t :
-.nf
-    _POSIX_C_SOURCE >= 199309L
-.fi
+See NOTES for information on feature test macro requirements.
 .SH DESCRIPTION
+.BR mmap ()
+creates a new mapping in the virtual address space of
+the calling process.
+The starting address for the new mapping is specified in
+.IR addr .
 The
-.BR sigaction ()
-system call is used to change the action taken by a process on
-receipt of a specific signal.
-(See
-.BR signal (7)
-for an overview of signals.)
-.PP
-.I signum
-specifies the signal and can be any valid signal except
-.B SIGKILL
-and
-.BR SIGSTOP .
+.I length
+argument specifies the length of the mapping (which must be greater than 0).
 .PP
 If
-.I act
-is non-NULL, the new action for signal
-.I signum
-is installed from
-.IR act .
+.I addr
+is NULL,
+then the kernel chooses the (page-aligned) address
+at which to create the mapping;
+this is the most portable method of creating a new mapping.
 If
-.I oldact
-is non-NULL, the previous action is saved in
-.IR oldact .
+.I addr
+is not NULL,
+then the kernel takes it as a hint about where to place the mapping;
+on Linux, the kernel will pick a nearby page boundary (but always above
+or equal to the value specified by
+.IR /proc/sys/vm/mmap_min_addr )
+and attempt to create the mapping there.
+If another mapping already exists there, the kernel picks a new address that
+may or may not depend on the hint.
+.\" Before Linux 2.6.24, the address was rounded up to the next page
+.\" boundary; since 2.6.24, it is rounded down!
+The address of the new mapping is returned as the result of the call.
+.PP
+The contents of a file mapping (as opposed to an anonymous mapping; see
+.B MAP_ANONYMOUS
+below), are initialized using
+.I length
+bytes starting at offset
+.I offset
+in the file (or other object) referred to by the file descriptor
+.IR fd .
+.I offset
+must be a multiple of the page size as returned by
+.IR sysconf(_SC_PAGE_SIZE) .
+.PP
+After the
+.BR mmap ()
+call has returned, the file descriptor,
+.IR fd ,
+can be closed immediately without invalidating the mapping.
 .PP
 The
-.I sigaction
-structure is defined as something like:
-.PP
-.in +4n
-.EX
-struct sigaction {
-    void     (*sa_handler)(int);
-    void     (*sa_sigaction)(int, siginfo_t *, void *);
-    sigset_t   sa_mask;
-    int        sa_flags;
-    void     (*sa_restorer)(void);
-};
-.EE
-.in
-.PP
-On some architectures a union is involved: do not assign to both
-.I sa_handler
-and
-.IR sa_sigaction .
-.PP
-The
-.I sa_restorer
-field is not intended for application use.
-(POSIX does not specify a
-.I sa_restorer
-field.)
-Some further details of the purpose of this field can be found in
-.BR sigreturn (2).
-.PP
-.I sa_handler
-specifies the action to be associated with
-.I signum
-and is be one of the following:
-.IP * 2
-.B SIG_DFL
-for the default action.
-.IP *
-.B SIG_IGN
-to ignore this signal.
-.IP *
-A pointer to a signal handling function.
-This function receives the signal number as its only argument.
-.PP
-If
-.B SA_SIGINFO
-is specified in
-.IR sa_flags ,
-then
-.I sa_sigaction
-(instead of
-.IR sa_handler )
-specifies the signal-handling function for
-.IR signum .
-This function receives three arguments, as described below.
-.PP
-.I sa_mask
-specifies a mask of signals which should be blocked
-(i.e., added to the signal mask of the thread in which
-the signal handler is invoked)
-during execution of the signal handler.
-In addition, the signal which triggered the handler
-will be blocked, unless the
-.B SA_NODEFER
-flag is used.
-.PP
-.I sa_flags
-specifies a set of flags which modify the behavior of the signal.
-It is formed by the bitwise OR of zero or more of the following:
+.I prot
+argument describes the desired memory protection of the mapping
+(and must not conflict with the open mode of the file).
+It is either
+.B PROT_NONE
+or the bitwise OR of one or more of the following flags:
+.TP 1.1i
+.B PROT_EXEC
+Pages may be executed.
 .TP
-.B SA_NOCLDSTOP
-If
-.I signum
-is
-.BR SIGCHLD ,
-do not receive notification when child processes stop (i.e., when they
-receive one of
-.BR SIGSTOP ", " SIGTSTP ", " SIGTTIN ,
-or
-.BR SIGTTOU )
-or resume (i.e., they receive
-.BR SIGCONT )
-(see
-.BR wait (2)).
-This flag is meaningful only when establishing a handler for
-.BR SIGCHLD .
+.B PROT_READ
+Pages may be read.
 .TP
-.BR SA_NOCLDWAIT " (since Linux 2.6)"
-.\" To be precise: Linux 2.5.60 -- MTK
-If
-.I signum
-is
-.BR SIGCHLD ,
-do not transform children into zombies when they terminate.
-See also
-.BR waitpid (2).
-This flag is meaningful only when establishing a handler for
-.BR SIGCHLD ,
-or when setting that signal's disposition to
-.BR SIG_DFL .
-.IP
-If the
-.B SA_NOCLDWAIT
-flag is set when establishing a handler for
-.BR SIGCHLD ,
-POSIX.1 leaves it unspecified whether a
-.B SIGCHLD
-signal is generated when a child process terminates.
-On Linux, a
-.B SIGCHLD
-signal is generated in this case;
-on some other implementations, it is not.
+.B PROT_WRITE
+Pages may be written.
 .TP
-.B SA_NODEFER
-Do not add the signal to the thread's signal mask while the
-handler is executing, unless the signal is specified in
-.IR act.sa_mask .
-Consequently, a further instance of the signal may be delivered
-to the thread while it is executing the handler.
-This flag is meaningful only when establishing a signal handler.
-.IP
-.B SA_NOMASK
-is an obsolete, nonstandard synonym for this flag.
-.TP
-.B SA_ONSTACK
-Call the signal handler on an alternate signal stack provided by
-.BR sigaltstack (2).
-If an alternate stack is not available, the default stack will be used.
-This flag is meaningful only when establishing a signal handler.
-.TP
-.BR SA_RESETHAND
-Restore the signal action to the default upon entry to the signal handler.
-This flag is meaningful only when establishing a signal handler.
-.IP
-.B SA_ONESHOT
-is an obsolete, nonstandard synonym for this flag.
-.TP
-.B SA_RESTART
-Provide behavior compatible with BSD signal semantics by making certain
-system calls restartable across signals.
-This flag is meaningful only when establishing a signal handler.
-See
-.BR signal (7)
-for a discussion of system call restarting.
-.TP
-.BR SA_RESTORER
-.IR "Not intended for application use" .
-This flag is used by C libraries to indicate that the
-.IR sa_restorer
-field contains the address of a "signal trampoline".
-See
-.BR sigreturn (2)
-for more details.
-.TP
-.BR SA_SIGINFO " (since Linux 2.2)"
-The signal handler takes three arguments, not one.
-In this case,
-.I sa_sigaction
-should be set instead of
-.IR sa_handler .
-This flag is meaningful only when establishing a signal handler.
-.\" (The
-.\" .I sa_sigaction
-.\" field was added in Linux 2.1.86.)
+.B PROT_NONE
+Pages may not be accessed.
 .\"
+.SS The flags argument
+The
+.I flags
+argument determines whether updates to the mapping
+are visible to other processes mapping the same region,
+and whether updates are carried through to the underlying file.
+This behavior is determined by including exactly one
+of the following values in
+.IR flags :
 .TP
-.BR SA_UNSUPPORTED " (since Linux 5.11)"
-Used to dynamically probe for flag bit support.
-.IP
-If an attempt to register a handler succeeds with this flag set in
-.I act\->sa_flags
-alongside other flags that are potentially unsupported by the kernel,
-and an immediately subsequent
-.BR sigaction ()
-call specifying the same signal number and with a non-NULL
-.I oldact
-argument yields
-.B SA_UNSUPPORTED
-.I clear
-in
-.IR oldact->sa_flags ,
-then
-.I oldact->sa_flags
-may be used as a bitmask
-describing which of the potentially unsupported flags are,
-in fact, supported.
-See the section "Dynamically probing for flag bit support"
-below for more details.
+.B MAP_SHARED
+Share this mapping.
+Updates to the mapping are visible to other processes mapping the same region,
+and (in the case of file-backed mappings)
+are carried through to the underlying file.
+(To precisely control when updates are carried through
+to the underlying file requires the use of
+.BR msync (2).)
 .TP
-.BR SA_EXPOSE_TAGBITS " (since Linux 5.11)"
-Normally, when delivering a signal,
-an architecture-specific set of tag bits are cleared from the
-.I si_addr
-field of
-.IR siginfo_t .
-If this flag is set,
-an architecture-specific subset of the tag bits will be preserved in
-.IR si_addr .
-.IP
-Programs that need to be compatible with Linux versions older than 5.11
-must use
-.B SA_UNSUPPORTED
-to probe for support.
-.SS The siginfo_t argument to a SA_SIGINFO handler
-When the
-.B SA_SIGINFO
-flag is specified in
-.IR act.sa_flags ,
-the signal handler address is passed via the
-.IR act.sa_sigaction
-field.
-This handler takes three arguments, as follows:
+.BR MAP_SHARED_VALIDATE " (since Linux 4.15)"
+This flag provides the same behavior as
+.B MAP_SHARED
+except that
+.B MAP_SHARED
+mappings ignore unknown flags in
+.IR flags .
+By contrast, when creating a mapping using
+.BR MAP_SHARED_VALIDATE ,
+the kernel verifies all passed flags are known and fails the
+mapping with the error
+.BR EOPNOTSUPP
+for unknown flags.
+This mapping type is also required to be able to use some mapping flags
+(e.g.,
+.BR MAP_SYNC ).
+.TP
+.B MAP_PRIVATE
+Create a private copy-on-write mapping.
+Updates to the mapping are not visible to other processes
+mapping the same file, and are not carried through to
+the underlying file.
+It is unspecified whether changes made to the file after the
+.BR mmap ()
+call are visible in the mapped region.
 .PP
+Both
+.B MAP_SHARED
+and
+.B MAP_PRIVATE
+are described in POSIX.1-2001 and POSIX.1-2008.
+.B MAP_SHARED_VALIDATE
+is a Linux extension.
+.PP
+In addition, zero or more of the following values can be ORed in
+.IR flags :
+.TP
+.BR MAP_32BIT " (since Linux 2.4.20, 2.6)"
+Put the mapping into the first 2 Gigabytes of the process address space.
+This flag is supported only on x86-64, for 64-bit programs.
+It was added to allow thread stacks to be allocated somewhere
+in the first 2\ GB of memory,
+so as to improve context-switch performance on some early
+64-bit processors.
+.\" See http://lwn.net/Articles/294642 "Tangled up in threads", 19 Aug 08
+Modern x86-64 processors no longer have this performance problem,
+so use of this flag is not required on those systems.
+The
+.B MAP_32BIT
+flag is ignored when
+.B MAP_FIXED
+is set.
+.TP
+.B MAP_ANON
+Synonym for
+.BR MAP_ANONYMOUS ;
+provided for compatibility with other implementations.
+.TP
+.B MAP_ANONYMOUS
+The mapping is not backed by any file;
+its contents are initialized to zero.
+The
+.I fd
+argument is ignored;
+however, some implementations require
+.I fd
+to be \-1 if
+.B MAP_ANONYMOUS
+(or
+.BR MAP_ANON )
+is specified,
+and portable applications should ensure this.
+The
+.I offset
+argument should be zero.
+.\" See the pgoff overflow check in do_mmap().
+.\" See the offset check in sys_mmap in arch/x86/kernel/sys_x86_64.c.
+The use of
+.B MAP_ANONYMOUS
+in conjunction with
+.B MAP_SHARED
+is supported on Linux only since kernel 2.4.
+.TP
+.B MAP_DENYWRITE
+This flag is ignored.
+.\" Introduced in 1.1.36, removed in 1.3.24.
+(Long ago\(emLinux 2.0 and earlier\(emit signaled
+that attempts to write to the underlying file should fail with
+.BR ETXTBSY .
+But this was a source of denial-of-service attacks.)
+.TP
+.B MAP_EXECUTABLE
+This flag is ignored.
+.\" Introduced in 1.1.38, removed in 1.3.24. Flag tested in proc_follow_link.
+.\" (Long ago, it signaled that the underlying file is an executable.
+.\" However, that information was not really used anywhere.)
+.\" Linus talked about DOS related to MAP_EXECUTABLE, but he was thinking of
+.\" MAP_DENYWRITE?
+.TP
+.B MAP_FILE
+Compatibility flag.
+Ignored.
+.\" On some systems, this was required as the opposite of
+.\" MAP_ANONYMOUS -- mtk, 1 May 2007
+.TP
+.B MAP_FIXED
+Don't interpret
+.I addr
+as a hint: place the mapping at exactly that address.
+.I addr
+must be suitably aligned: for most architectures a multiple of the page
+size is sufficient; however, some architectures may impose additional
+restrictions.
+If the memory region specified by
+.I addr
+and
+.I length
+overlaps pages of any existing mapping(s), then the overlapped
+part of the existing mapping(s) will be discarded.
+If the specified address cannot be used,
+.BR mmap ()
+will fail.
+.IP
+Software that aspires to be portable should use the
+.BR MAP_FIXED
+flag with care,
+keeping in mind that the exact layout of a process's memory mappings
+is allowed to change significantly between kernel versions,
+C library versions, and operating system releases.
+.IR "Carefully read the discussion of this flag in NOTES!"
+.TP
+.BR MAP_FIXED_NOREPLACE " (since Linux 4.17)"
+.\" commit a4ff8e8620d3f4f50ac4b41e8067b7d395056843
+This flag provides behavior that is similar to
+.B MAP_FIXED
+with respect to the
+.I addr
+enforcement, but differs in that
+.B MAP_FIXED_NOREPLACE
+never clobbers a preexisting mapped range.
+If the requested range would collide with an existing mapping,
+then this call fails with the error
+.B EEXIST.
+This flag can therefore be used as a way to atomically
+(with respect to other threads) attempt to map an address range:
+one thread will succeed; all others will report failure.
+.IP
+Note that older kernels which do not recognize the
+.BR MAP_FIXED_NOREPLACE
+flag will typically (upon detecting a collision with a preexisting mapping)
+fall back to a "non-\c
+.B MAP_FIXED\c
+" type of behavior:
+they will return an address that is different from the requested address.
+Therefore, backward-compatible software
+should check the returned address against the requested address.
+.TP
+.B MAP_GROWSDOWN
+This flag is used for stacks.
+It indicates to the kernel virtual memory system that the mapping
+should extend downward in memory.
+The return address is one page lower than the memory area that is
+actually created in the process's virtual address space.
+Touching an address in the "guard" page below the mapping will cause
+the mapping to grow by a page.
+This growth can be repeated until the mapping grows to within a
+page of the high end of the next lower mapping,
+at which point touching the "guard" page will result in a
+.B SIGSEGV
+signal.
+.TP
+.BR MAP_HUGETLB " (since Linux 2.6.32)"
+Allocate the mapping using "huge" pages.
+See the Linux kernel source file
+.I Documentation/admin\-guide/mm/hugetlbpage.rst
+for further information, as well as NOTES, below.
+.TP
+.BR MAP_HUGE_2MB ", " MAP_HUGE_1GB " (since Linux 3.8)"
+.\" See https://lwn.net/Articles/533499/
+Used in conjunction with
+.B MAP_HUGETLB
+to select alternative hugetlb page sizes (respectively, 2\ MB and 1\ GB)
+on systems that support multiple hugetlb page sizes.
+.IP
+More generally, the desired huge page size can be configured by encoding
+the base-2 logarithm of the desired page size in the six bits at the offset
+.BR MAP_HUGE_SHIFT .
+(A value of zero in this bit field provides the default huge page size;
+the default huge page size can be discovered via the
+.I Hugepagesize
+field exposed by
+.IR /proc/meminfo .)
+Thus, the above two constants are defined as:
+.IP
 .in +4n
 .EX
-void
-handler(int sig, siginfo_t *info, void *ucontext)
-{
-    ...
-}
+#define MAP_HUGE_2MB    (21 << MAP_HUGE_SHIFT)
+#define MAP_HUGE_1GB    (30 << MAP_HUGE_SHIFT)
 .EE
 .in
-.PP
-These three arguments are as follows
+.IP
+The range of huge page sizes that are supported by the system
+can be discovered by listing the subdirectories in
+.IR /sys/kernel/mm/hugepages .
 .TP
-.I sig
-The number of the signal that caused invocation of the handler.
+.BR MAP_LOCKED " (since Linux 2.5.37)"
+Mark the mapped region to be locked in the same way as
+.BR mlock (2).
+This implementation will try to populate (prefault) the whole range but the
+.BR mmap ()
+call doesn't fail with
+.B ENOMEM
+if this fails.
+Therefore major faults might happen later on.
+So the semantic is not as strong as
+.BR mlock (2).
+One should use
+.BR mmap ()
+plus
+.BR mlock (2)
+when major faults are not acceptable after the initialization of the mapping.
+The
+.BR MAP_LOCKED
+flag is ignored in older kernels.
+.\" If set, the mapped pages will not be swapped out.
 .TP
-.I info
-A pointer to a
-.IR siginfo_t ,
-which is a structure containing further information about the signal,
-as described below.
+.BR MAP_NONBLOCK " (since Linux 2.5.46)"
+This flag is meaningful only in conjunction with
+.BR MAP_POPULATE .
+Don't perform read-ahead:
+create page tables entries only for pages
+that are already present in RAM.
+Since Linux 2.6.23,
+.\" commit 54cb8821de07f2ffcd28c380ce9b93d5784b40d7
+this flag causes
+.BR MAP_POPULATE
+to do nothing.
+One day, the combination of
+.BR MAP_POPULATE
+and
+.BR MAP_NONBLOCK
+may be reimplemented.
 .TP
-.I ucontext
-This is a pointer to a
-.I ucontext_t
-structure, cast to \fIvoid\ *\fP.
-The structure pointed to by this field contains
-signal context information that was saved
-on the user-space stack by the kernel; for details, see
-.BR sigreturn (2).
-Further information about the
-.IR ucontext_t
-structure can be found in
-.BR getcontext (3)
-and
-.BR signal (7).
-Commonly, the handler function doesn't make any use of the third argument.
-.PP
-The
-.I siginfo_t
-data type is a structure with the following fields:
-.PP
-.in +4n
-.EX
-siginfo_t {
-    int      si_signo;     /* Signal number */
-    int      si_errno;     /* An errno value */
-    int      si_code;      /* Signal code */
-    int      si_trapno;    /* Trap number that caused
-                              hardware\-generated signal
-                              (unused on most architectures) */
-.\" FIXME
-.\" The siginfo_t 'si_trapno' field seems to be used
-.\" only on SPARC and Alpha; this page could use
-.\" a little more detail on its purpose there.
-    pid_t    si_pid;       /* Sending process ID */
-    uid_t    si_uid;       /* Real user ID of sending process */
-    int      si_status;    /* Exit value or signal */
-    clock_t  si_utime;     /* User time consumed */
-    clock_t  si_stime;     /* System time consumed */
-    union sigval si_value; /* Signal value */
-    int      si_int;       /* POSIX.1b signal */
-    void    *si_ptr;       /* POSIX.1b signal */
-    int      si_overrun;   /* Timer overrun count;
-                              POSIX.1b timers */
-    int      si_timerid;   /* Timer ID; POSIX.1b timers */
-.\" In the kernel: si_tid
-    void    *si_addr;      /* Memory location which caused fault */
-    long     si_band;      /* Band event (was \fIint\fP in
-                              glibc 2.3.2 and earlier) */
-    int      si_fd;        /* File descriptor */
-    short    si_addr_lsb;  /* Least significant bit of address
-                              (since Linux 2.6.32) */
-    void    *si_lower;     /* Lower bound when address violation
-                              occurred (since Linux 3.19) */
-    void    *si_upper;     /* Upper bound when address violation
-                              occurred (since Linux 3.19) */
-    int      si_pkey;      /* Protection key on PTE that caused
-                              fault (since Linux 4.6) */
-    void    *si_call_addr; /* Address of system call instruction
-                              (since Linux 3.5) */
-    int      si_syscall;   /* Number of attempted system call
-                              (since Linux 3.5) */
-    unsigned int si_arch;  /* Architecture of attempted system call
-                              (since Linux 3.5) */
-}
-.EE
-.in
-.PP
-.IR si_signo ", " si_errno " and " si_code
-are defined for all signals.
-.RI ( si_errno
-is generally unused on Linux.)
-The rest of the struct may be a union, so that one should
-read only the fields that are meaningful for the given signal:
-.IP * 2
-Signals sent with
-.BR kill (2)
-and
-.BR sigqueue (3)
-fill in
-.IR si_pid " and " si_uid .
-In addition, signals sent with
-.BR sigqueue (3)
-fill in
-.IR si_int " and " si_ptr
-with the values specified by the sender of the signal;
-see
-.BR sigqueue (3)
-for more details.
-.IP *
-Signals sent by POSIX.1b timers (since Linux 2.6) fill in
-.I si_overrun
-and
-.IR si_timerid .
-The
-.I si_timerid
-field is an internal ID used by the kernel to identify
-the timer; it is not the same as the timer ID returned by
-.BR timer_create (2).
-The
-.I si_overrun
-field is the timer overrun count;
-this is the same information as is obtained by a call to
-.BR timer_getoverrun (2).
-These fields are nonstandard Linux extensions.
-.IP *
-Signals sent for message queue notification (see the description of
-.B SIGEV_SIGNAL
+.B MAP_NORESERVE
+Do not reserve swap space for this mapping.
+When swap space is reserved, one has the guarantee
+that it is possible to modify the mapping.
+When swap space is not reserved one might get
+.B SIGSEGV
+upon a write
+if no physical memory is available.
+See also the discussion of the file
+.I /proc/sys/vm/overcommit_memory
 in
-.BR mq_notify (3))
-fill in
-.IR si_int / si_ptr ,
-with the
-.I sigev_value
-supplied to
-.BR mq_notify (3);
-.IR si_pid ,
-with the process ID of the message sender; and
-.IR si_uid ,
-with the real user ID of the message sender.
-.IP *
-.B SIGCHLD
-fills in
-.IR si_pid ", " si_uid ", " si_status ", " si_utime ", and " si_stime ,
-providing information about the child.
+.BR proc (5).
+In kernels before 2.6, this flag had effect only for
+private writable mappings.
+.TP
+.BR MAP_POPULATE " (since Linux 2.5.46)"
+Populate (prefault) page tables for a mapping.
+For a file mapping, this causes read-ahead on the file.
+This will help to reduce blocking on page faults later.
 The
-.I si_pid
-field is the process ID of the child;
-.I si_uid
-is the child's real user ID.
-The
-.I si_status
-field contains the exit status of the child (if
-.I si_code
-is
-.BR CLD_EXITED ),
-or the signal number that caused the process to change state.
-The
-.I si_utime
-and
-.I si_stime
-contain the user and system CPU time used by the child process;
-these fields do not include the times used by waited-for children (unlike
-.BR getrusage (2)
-and
-.BR times (2)).
-In kernels up to 2.6, and since 2.6.27, these fields report
-CPU time in units of
-.IR sysconf(_SC_CLK_TCK) .
-In 2.6 kernels before 2.6.27,
-a bug meant that these fields reported time in units
-of the (configurable) system jiffy (see
-.BR time (7)).
-.\" FIXME .
-.\" When si_utime and si_stime where originally implemented, the
-.\" measurement unit was HZ, which was the same as clock ticks
-.\" (sysconf(_SC_CLK_TCK)).  In 2.6, HZ became configurable, and
-.\" was *still* used as the unit to return the info these fields,
-.\" with the result that the field values depended on the
-.\" configured HZ.  Of course, the should have been measured in
-.\" USER_HZ instead, so that sysconf(_SC_CLK_TCK) could be used to
-.\" convert to seconds.  I have a queued patch to fix this:
-.\" http://thread.gmane.org/gmane.linux.kernel/698061/ .
-.\" This patch made it into 2.6.27.
-.\" But note that these fields still don't return the times of
-.\" waited-for children (as is done by getrusage() and times()
-.\" and wait4()).  Solaris 8 does include child times.
-.IP *
-.BR SIGILL ,
-.BR SIGFPE ,
-.BR SIGSEGV ,
-.BR SIGBUS ,
-and
-.BR SIGTRAP
-fill in
-.I si_addr
-with the address of the fault.
-On some architectures,
-these signals also fill in the
-.I si_trapno
-field.
+.BR mmap ()
+call doesn't fail if the mapping cannot be populated (for example, due
+to limitations on the number of mapped huge pages when using
+.BR MAP_HUGETLB ).
+.BR MAP_POPULATE
+is supported for private mappings only since Linux 2.6.23.
+.TP
+.BR MAP_STACK " (since Linux 2.6.27)"
+Allocate the mapping at an address suitable for a process
+or thread stack.
 .IP
-Some suberrors of
-.BR SIGBUS ,
-in particular
-.B BUS_MCEERR_AO
-and
-.BR BUS_MCEERR_AR ,
-also fill in
-.IR si_addr_lsb .
-This field indicates the least significant bit of the reported address
-and therefore the extent of the corruption.
-For example, if a full page was corrupted,
-.I si_addr_lsb
-contains
-.IR log2(sysconf(_SC_PAGESIZE)) .
-When
-.BR SIGTRAP
-is delivered in response to a
-.BR ptrace (2)
-event (PTRACE_EVENT_foo),
-.I si_addr
-is not populated, but
-.I si_pid
-and
-.I si_uid
-are populated with the respective process ID and user ID responsible for
-delivering the trap.
-In the case of
-.BR seccomp (2),
-the tracee will be shown as delivering the event.
-.B BUS_MCEERR_*
-and
-.I si_addr_lsb
-are Linux-specific extensions.
+This flag is currently a no-op on Linux.
+However, by employing this flag, applications can ensure that
+they transparently obtain support if the flag
+is implemented in the future.
+Thus, it is used in the glibc threading implementation to allow for
+the fact that some architectures may (later) require special treatment
+for stack allocations.
+.\" See http://lwn.net/Articles/294642 "Tangled up in threads", 19 Aug 08
+.\" commit cd98a04a59e2f94fa64d5bf1e26498d27427d5e7
+.\" http://thread.gmane.org/gmane.linux.kernel/720412
+.\" "pthread_create() slow for many threads; also time to revisit 64b
+.\"  context switch optimization?"
+A further reason to employ this flag is portability:
+.BR MAP_STACK
+exists (and has an effect) on some other systems (e.g., some of the BSDs).
+.TP
+.BR MAP_SYNC " (since Linux 4.15)"
+This flag is available only with the
+.B MAP_SHARED_VALIDATE
+mapping type;
+mappings of type
+.B MAP_SHARED
+will silently ignore this flag.
+This flag is supported only for files supporting DAX
+(direct mapping of persistent memory).
+For other files, creating a mapping with this flag results in an
+.B EOPNOTSUPP
+error.
 .IP
+Shared file mappings with this flag provide the guarantee that while
+some memory is mapped writable in the address space of the process,
+it will be visible in the same file at the same offset even after
+the system crashes or is rebooted.
+In conjunction with the use of appropriate CPU instructions,
+this provides users of such mappings with a more efficient way
+of making data modifications persistent.
+.TP
+.BR MAP_UNINITIALIZED " (since Linux 2.6.33)"
+Don't clear anonymous pages.
+This flag is intended to improve performance on embedded devices.
+This flag is honored only if the kernel was configured with the
+.B CONFIG_MMAP_ALLOW_UNINITIALIZED
+option.
+Because of the security implications,
+that option is normally enabled only on embedded devices
+(i.e., devices where one has complete control of the contents of user memory).
+.PP
+Of the above flags, only
+.B MAP_FIXED
+is specified in POSIX.1-2001 and POSIX.1-2008.
+However, most systems also support
+.B MAP_ANONYMOUS
+(or its synonym
+.BR MAP_ANON ).
+.\" FIXME . for later review when Issue 8 is one day released...
+.\" POSIX may add MAP_ANON in the future
+.\" http://austingroupbugs.net/tag_view_page.php?tag_id=8
+.\" http://austingroupbugs.net/view.php?id=850
+.SS munmap()
 The
-.BR SEGV_BNDERR
-suberror of
-.B SIGSEGV
-populates
-.IR si_lower
-and
-.IR si_upper .
-.IP
-The
-.BR SEGV_PKUERR
-suberror of
-.B SIGSEGV
-populates
-.IR si_pkey .
-.IP *
-.BR SIGIO / SIGPOLL
-(the two names are synonyms on Linux)
-fills in
-.IR si_band " and " si_fd .
-The
-.I si_band
-event is a bit mask containing the same values as are filled in the
-.I revents
-field by
-.BR poll (2).
-The
-.I si_fd
-field indicates the file descriptor for which the I/O event occurred;
-for further details, see the description of
-.BR F_SETSIG
-in
-.BR fcntl (2).
-.IP *
-.BR SIGSYS ,
-generated (since Linux 3.5)
-.\" commit a0727e8ce513fe6890416da960181ceb10fbfae6
-when a seccomp filter returns
-.BR SECCOMP_RET_TRAP ,
-fills in
-.IR si_call_addr ,
-.IR si_syscall ,
-.IR si_arch ,
-.IR si_errno ,
-and other fields as described in
-.BR seccomp (2).
-.\"
-.SS
-The si_code field
-The
-.I si_code
-field inside the
-.I siginfo_t
-argument that is passed to a
-.B SA_SIGINFO
-signal handler is a value (not a bit mask)
-indicating why this signal was sent.
-For a
-.BR ptrace (2)
-event,
-.I si_code
-will contain
-.BR SIGTRAP
-and have the ptrace event in the high byte:
+.BR munmap ()
+system call deletes the mappings for the specified address range, and
+causes further references to addresses within the range to generate
+invalid memory references.
+The region is also automatically unmapped
+when the process is terminated.
+On the other hand, closing the file
+descriptor does not unmap the region.
 .PP
-.in +4n
-.EX
-(SIGTRAP | PTRACE_EVENT_foo << 8).
-.EE
-.in
-.PP
-For a
-.RB non- ptrace (2)
-event, the values that can appear in
-.I si_code
-are described in the remainder of this section.
-Since glibc 2.20,
-the definitions of most of these symbols are obtained from
-.I <signal.h>
-by defining feature test macros (before including
-.I any
-header file) as follows:
-.IP * 3
-.B _XOPEN_SOURCE
-with the value 500 or greater;
-.IP *
-.B _XOPEN_SOURCE
-and
-.BR _XOPEN_SOURCE_EXTENDED ;
-or
-.IP *
-.B _POSIX_C_SOURCE
-with the value 200809L or greater.
-.PP
-For the
-.B TRAP_*
-constants, the symbol definitions are provided only in the first two cases.
-Before glibc 2.20, no feature test macros were required to obtain these symbols.
-.PP
-For a regular signal, the following list shows the values which can be
-placed in
-.I si_code
-for any signal, along with the reason that the signal was generated.
-.RS 4
-.TP
-.B SI_USER
-.BR kill (2).
-.TP
-.B SI_KERNEL
-Sent by the kernel.
-.TP
-.B SI_QUEUE
-.BR sigqueue (3).
-.TP
-.B SI_TIMER
-POSIX timer expired.
-.TP
-.BR SI_MESGQ " (since Linux 2.6.6)"
-POSIX message queue state changed; see
-.BR mq_notify (3).
-.TP
-.B SI_ASYNCIO
-AIO completed.
-.TP
-.B SI_SIGIO
-Queued
-.B SIGIO
-(only in kernels up to Linux 2.2; from Linux 2.4 onward
-.BR SIGIO / SIGPOLL
-fills in
-.I si_code
-as described below).
-.TP
-.BR SI_TKILL " (since Linux 2.4.19)"
-.BR tkill (2)
-or
-.BR tgkill (2).
-.\" SI_DETHREAD is defined in 2.6.9 sources, but isn't implemented
-.\" It appears to have been an idea that was tried during 2.5.6
-.\" through to 2.5.24 and then was backed out.
-.RE
-.PP
-The following values can be placed in
-.I si_code
-for a
-.B SIGILL
-signal:
-.RS 4
-.TP
-.B ILL_ILLOPC
-Illegal opcode.
-.TP
-.B ILL_ILLOPN
-Illegal operand.
-.TP
-.B ILL_ILLADR
-Illegal addressing mode.
-.TP
-.B ILL_ILLTRP
-Illegal trap.
-.TP
-.B ILL_PRVOPC
-Privileged opcode.
-.TP
-.B ILL_PRVREG
-Privileged register.
-.TP
-.B ILL_COPROC
-Coprocessor error.
-.TP
-.B ILL_BADSTK
-Internal stack error.
-.RE
-.PP
-The following values can be placed in
-.I si_code
-for a
-.B SIGFPE
-signal:
-.RS 4
-.TP
-.B FPE_INTDIV
-Integer divide by zero.
-.TP
-.B FPE_INTOVF
-Integer overflow.
-.TP
-.B FPE_FLTDIV
-Floating-point divide by zero.
-.TP
-.B FPE_FLTOVF
-Floating-point overflow.
-.TP
-.B FPE_FLTUND
-Floating-point underflow.
-.TP
-.B FPE_FLTRES
-Floating-point inexact result.
-.TP
-.B FPE_FLTINV
-Floating-point invalid operation.
-.TP
-.B FPE_FLTSUB
-Subscript out of range.
-.RE
-.PP
-The following values can be placed in
-.I si_code
-for a
-.B SIGSEGV
-signal:
-.RS 4
-.TP
-.B SEGV_MAPERR
-Address not mapped to object.
-.TP
-.B SEGV_ACCERR
-Invalid permissions for mapped object.
-.TP
-.BR SEGV_BNDERR " (since Linux 3.19)"
-.\" commit ee1b58d36aa1b5a79eaba11f5c3633c88231da83
-Failed address bound checks.
-.TP
-.BR SEGV_PKUERR " (since Linux 4.6)"
-.\" commit cd0ea35ff5511cde299a61c21a95889b4a71464e
-Access was denied by memory protection keys.
-See
-.BR pkeys (7).
-The protection key which applied to this access is available via
-.IR si_pkey .
-.RE
-.PP
-The following values can be placed in
-.I si_code
-for a
-.B SIGBUS
-signal:
-.RS 4
-.TP
-.B BUS_ADRALN
-Invalid address alignment.
-.TP
-.B BUS_ADRERR
-Nonexistent physical address.
-.TP
-.B BUS_OBJERR
-Object-specific hardware error.
-.TP
-.BR BUS_MCEERR_AR " (since Linux 2.6.32)"
-Hardware memory error consumed on a machine check; action required.
-.TP
-.BR BUS_MCEERR_AO " (since Linux 2.6.32)"
-Hardware memory error detected in process but not consumed; action optional.
-.RE
-.PP
-The following values can be placed in
-.I si_code
-for a
-.B SIGTRAP
-signal:
-.RS 4
-.TP
-.B TRAP_BRKPT
-Process breakpoint.
-.TP
-.B TRAP_TRACE
-Process trace trap.
-.TP
-.BR TRAP_BRANCH " (since Linux 2.4, IA64 only)"
-Process taken branch trap.
-.TP
-.BR TRAP_HWBKPT " (since Linux 2.4, IA64 only)"
-Hardware breakpoint/watchpoint.
-.RE
-.PP
-The following values can be placed in
-.I si_code
-for a
-.B SIGCHLD
-signal:
-.RS 4
-.TP
-.B CLD_EXITED
-Child has exited.
-.TP
-.B CLD_KILLED
-Child was killed.
-.TP
-.B CLD_DUMPED
-Child terminated abnormally.
-.TP
-.B CLD_TRAPPED
-Traced child has trapped.
-.TP
-.B CLD_STOPPED
-Child has stopped.
-.TP
-.BR CLD_CONTINUED " (since Linux 2.6.9)"
-Stopped child has continued.
-.RE
-.PP
-The following values can be placed in
-.I si_code
-for a
-.BR SIGIO / SIGPOLL
-signal:
-.RS 4
-.TP
-.B POLL_IN
-Data input available.
-.TP
-.B POLL_OUT
-Output buffers available.
-.TP
-.B POLL_MSG
-Input message available.
-.TP
-.B POLL_ERR
-I/O error.
-.TP
-.B POLL_PRI
-High priority input available.
-.TP
-.B POLL_HUP
-Device disconnected.
-.RE
-.PP
-The following value can be placed in
-.I si_code
-for a
-.BR SIGSYS
-signal:
-.RS 4
-.TP
-.BR SYS_SECCOMP " (since Linux 3.5)"
-Triggered by a
-.BR seccomp (2)
-filter rule.
-.RE
-.SS Dynamically probing for flag bit support
-The
-.BR sigaction ()
-call on Linux accepts unknown bits set in
-.I act\->sa_flags
-without error.
-The behavior of the kernel starting with Linux 5.11 is that a second
-.BR sigaction ()
-will clear unknown bits from
-.IR oldact\->sa_flags .
-However, historically, a second
-.BR sigaction ()
-call would typically leave those bits set in
-.IR oldact\->sa_flags .
-.PP
-This means that support for new flags cannot be detected
-simply by testing for a flag in
-.IR sa_flags ,
-and a program must test that
-.B SA_UNSUPPORTED
-has been cleared before relying on the contents of
-.IR sa_flags .
-.PP
-Since the behavior of the signal handler cannot be guaranteed
-unless the check passes,
-it is wise to either block the affected signal
-while registering the handler and performing the check in this case,
-or where this is not possible,
-for example if the signal is synchronous, to issue the second
-.BR sigaction ()
-in the signal handler itself.
-.PP
-In kernels that do not support a specific flag,
-the kernel's behavior is as if the flag was not set,
-even if the flag was set in
-.IR act\->sa_flags .
-.PP
-The flags
-.BR SA_NOCLDSTOP ,
-.BR SA_NOCLDWAIT ,
-.BR SA_SIGINFO ,
-.BR SA_ONSTACK ,
-.BR SA_RESTART ,
-.BR SA_NODEFER ,
-.BR SA_RESETHAND ,
-and, if defined by the architecture,
-.B SA_RESTORER
-may not be reliably probed for using this mechanism,
-because they were introduced before Linux 5.11.
-However, in general, programs may assume that these flags are supported,
-since they have all been supported since Linux 2.6,
-which was released in the year 2003.
-.PP
-See EXAMPLES below for a demonstration of the use of
-.BR SA_UNSUPPORTED .
+The address
+.I addr
+must be a multiple of the page size (but
+.I length
+need not be).
+All pages containing a part
+of the indicated range are unmapped, and subsequent references
+to these pages will generate
+.BR SIGSEGV .
+It is not an error if the
+indicated range does not contain any mapped pages.
 .SH RETURN VALUE
-.BR sigaction ()
-returns 0 on success; on error, \-1 is returned, and
+On success,
+.BR mmap ()
+returns a pointer to the mapped area.
+On error, the value
+.B MAP_FAILED
+(that is,
+.IR "(void\ *)\ \-1" )
+is returned, and
 .I errno
 is set to indicate the error.
+.PP
+On success,
+.BR munmap ()
+returns 0.
+On failure, it returns \-1, and
+.I errno
+is set to indicate the error (probably to
+.BR EINVAL ).
 .SH ERRORS
 .TP
-.B EFAULT
-.IR act " or " oldact
-points to memory which is not a valid part of the process address space.
+.B EACCES
+A file descriptor refers to a non-regular file.
+Or a file mapping was requested, but
+.I fd
+is not open for reading.
+Or
+.B MAP_SHARED
+was requested and
+.B PROT_WRITE
+is set, but
+.I fd
+is not open in read/write
+.RB ( O_RDWR )
+mode.
+Or
+.B PROT_WRITE
+is set, but the file is append-only.
+.TP
+.B EAGAIN
+The file has been locked, or too much memory has been locked (see
+.BR setrlimit (2)).
+.TP
+.B EBADF
+.I fd
+is not a valid file descriptor (and
+.B MAP_ANONYMOUS
+was not set).
+.TP
+.B EEXIST
+.BR MAP_FIXED_NOREPLACE
+was specified in
+.IR flags ,
+and the range covered by
+.IR addr
+and
+.IR length
+clashes with an existing mapping.
 .TP
 .B EINVAL
-An invalid signal was specified.
-This will also be generated if an attempt
-is made to change the action for
-.BR SIGKILL " or " SIGSTOP ,
-which cannot be caught or ignored.
-.SH CONFORMING TO
-POSIX.1-2001, POSIX.1-2008, SVr4.
-.\" SVr4 does not document the EINTR condition.
-.SH NOTES
-A child created via
-.BR fork (2)
-inherits a copy of its parent's signal dispositions.
-During an
-.BR execve (2),
-the dispositions of handled signals are reset to the default;
-the dispositions of ignored signals are left unchanged.
-.PP
-According to POSIX, the behavior of a process is undefined after it
-ignores a
-.BR SIGFPE ,
-.BR SIGILL ,
+We don't like
+.IR addr ,
+.IR length ,
 or
+.I offset
+(e.g., they are too large, or not aligned on a page boundary).
+.TP
+.B EINVAL
+(since Linux 2.6.12)
+.I length
+was 0.
+.TP
+.B EINVAL
+.I flags
+contained none of
+.BR MAP_PRIVATE ,
+.BR MAP_SHARED ,
+or
+.BR MAP_SHARED_VALIDATE .
+.TP
+.B ENFILE
+.\" This is for shared anonymous segments
+.\" [2.6.7] shmem_zero_setup()-->shmem_file_setup()-->get_empty_filp()
+The system-wide limit on the total number of open files has been reached.
+.\" .TP
+.\" .B ENOEXEC
+.\" A file could not be mapped for reading.
+.TP
+.B ENODEV
+The underlying filesystem of the specified file does not support
+memory mapping.
+.TP
+.B ENOMEM
+No memory is available.
+.TP
+.B ENOMEM
+The process's maximum number of mappings would have been exceeded.
+This error can also occur for
+.BR munmap (),
+when unmapping a region in the middle of an existing mapping,
+since this results in two smaller mappings on either side of
+the region being unmapped.
+.TP
+.B ENOMEM
+(since Linux 4.7)
+The process's
+.B RLIMIT_DATA
+limit, described in
+.BR getrlimit (2),
+would have been exceeded.
+.TP
+.B EOVERFLOW
+On 32-bit architecture together with the large file extension
+(i.e., using 64-bit
+.IR off_t ):
+the number of pages used for
+.I length
+plus number of pages used for
+.I offset
+would overflow
+.I "unsigned long"
+(32 bits).
+.TP
+.B EPERM
+The
+.I prot
+argument asks for
+.B PROT_EXEC
+but the mapped area belongs to a file on a filesystem that
+was mounted no-exec.
+.\" (Since 2.4.25 / 2.6.0.)
+.TP
+.B EPERM
+The operation was prevented by a file seal; see
+.BR fcntl (2).
+.TP
+.B EPERM
+The
+.B MAP_HUGETLB
+flag was specified, but the caller was not privileged (did not have the
+.B CAP_IPC_LOCK
+capability)
+and is not a member of the
+.I sysctl_hugetlb_shm_group
+group; see the description of
+.I /proc/sys/vm/sysctl_hugetlb_shm_group
+in
+.TP
+.B ETXTBSY
+.B MAP_DENYWRITE
+was set but the object specified by
+.I fd
+is open for writing.
+.PP
+Use of a mapped region can result in these signals:
+.TP
 .B SIGSEGV
-signal that was not generated by
-.BR kill (2)
-or
-.BR raise (3).
-Integer division by zero has undefined result.
-On some architectures it will generate a
-.B SIGFPE
-signal.
-(Also dividing the most negative integer by \-1 may generate
-.BR SIGFPE .)
-Ignoring this signal might lead to an endless loop.
+Attempted write into a region mapped as read-only.
+.TP
+.B SIGBUS
+Attempted access to a page of the buffer that lies beyond the
+end of the mapped file.
+For an explanation of the treatment of the bytes in the page that
+corresponds to the end of a mapped file that is not a multiple
+of the page size, see NOTES.
+.SH ATTRIBUTES
+For an explanation of the terms used in this section, see
+.BR attributes (7).
+.ad l
+.nh
+.TS
+allbox;
+lbx lb lb
+l l l.
+Interface	Attribute	Value
+T{
+.BR mmap (),
+.BR munmap ()
+T}	Thread safety	MT-Safe
+.TE
+.hy
+.ad
+.sp 1
+.SH CONFORMING TO
+POSIX.1-2001, POSIX.1-2008, SVr4, 4.4BSD.
+.\" SVr4 documents additional error codes ENXIO and ENODEV.
+.\" SUSv2 documents additional error codes EMFILE and EOVERFLOW.
 .PP
-POSIX.1-1990 disallowed setting the action for
-.B SIGCHLD
-to
-.BR SIG_IGN .
-POSIX.1-2001 and later allow this possibility, so that ignoring
-.B SIGCHLD
-can be used to prevent the creation of zombies (see
-.BR wait (2)).
-Nevertheless, the historical BSD and System\ V behaviors for ignoring
-.B SIGCHLD
-differ, so that the only completely portable method of ensuring that
-terminated children do not become zombies is to catch the
-.B SIGCHLD
-signal and perform a
-.BR wait (2)
-or similar.
-.PP
-POSIX.1-1990 specified only
-.BR SA_NOCLDSTOP .
-POSIX.1-2001 added
-.BR SA_NOCLDSTOP ,
-.BR SA_NOCLDWAIT ,
-.BR SA_NODEFER ,
-.BR SA_ONSTACK ,
-.BR SA_RESETHAND ,
-.BR SA_RESTART ,
+On POSIX systems on which
+.BR mmap (),
+.BR msync (2),
 and
-.BR SA_SIGINFO .
-Use of these latter values in
-.I sa_flags
-may be less portable in applications intended for older
-UNIX implementations.
+.BR munmap ()
+are available,
+.B _POSIX_MAPPED_FILES
+is defined in \fI<unistd.h>\fP to a value greater than 0.
+(See also
+.BR sysconf (3).)
+.\" POSIX.1-2001: It shall be defined to -1 or 0 or 200112L.
+.\" -1: unavailable, 0: ask using sysconf().
+.\" glibc defines it to 1.
+.SH NOTES
+Memory mapped by
+.BR mmap ()
+is preserved across
+.BR fork (2),
+with the same attributes.
+.PP
+A file is mapped in multiples of the page size.
+For a file that is not
+a multiple of the page size,
+the remaining bytes in the partial page at the end of the mapping
+are zeroed when mapped,
+and modifications to that region are not written out to the file.
+The effect of
+changing the size of the underlying file of a mapping on the pages that
+correspond to added or removed regions of the file is unspecified.
+.PP
+On some hardware architectures (e.g., i386),
+.B PROT_WRITE
+implies
+.BR PROT_READ .
+It is architecture dependent whether
+.B PROT_READ
+implies
+.B PROT_EXEC
+or not.
+Portable programs should always set
+.B PROT_EXEC
+if they intend to execute code in the new mapping.
+.PP
+The portable way to create a mapping is to specify
+.I addr
+as 0 (NULL), and omit
+.B MAP_FIXED
+from
+.IR flags .
+In this case, the system chooses the address for the mapping;
+the address is chosen so as not to conflict with any existing mapping,
+and will not be 0.
+If the
+.B MAP_FIXED
+flag is specified, and
+.I addr
+is 0 (NULL), then the mapped address will be 0 (NULL).
+.PP
+Certain
+.I flags
+constants are defined only if suitable feature test macros are defined
+(possibly by default):
+.BR _DEFAULT_SOURCE
+with glibc 2.19 or later;
+or
+.BR _BSD_SOURCE
+or
+.BR _SVID_SOURCE
+in glibc 2.19 and earlier.
+(Employing
+.BR _GNU_SOURCE
+also suffices,
+and requiring that macro specifically would have been more logical,
+since these flags are all Linux-specific.)
+The relevant flags are:
+.BR MAP_32BIT ,
+.BR MAP_ANONYMOUS
+(and the synonym
+.BR MAP_ANON ),
+.BR MAP_DENYWRITE ,
+.BR MAP_EXECUTABLE ,
+.BR MAP_FILE ,
+.BR MAP_GROWSDOWN ,
+.BR MAP_HUGETLB ,
+.BR MAP_LOCKED ,
+.BR MAP_NONBLOCK ,
+.BR MAP_NORESERVE ,
+.BR MAP_POPULATE ,
+and
+.BR MAP_STACK .
+.PP
+An application can determine which pages of a mapping are
+currently resident in the buffer/page cache using
+.BR mincore (2).
+.\"
+.SS Using MAP_FIXED safely
+The only safe use for
+.BR MAP_FIXED
+is where the address range specified by
+.IR addr
+and
+.I length
+was previously reserved using another mapping;
+otherwise, the use of
+.BR MAP_FIXED
+is hazardous because it forcibly removes preexisting mappings,
+making it easy for a multithreaded process to corrupt its own address space.
+.PP
+For example, suppose that thread A looks through
+.I /proc/<pid>/maps
+in order to locate an unused address range that it can map using
+.BR MAP_FIXED ,
+while thread B simultaneously acquires part or all of that same
+address range.
+When thread A subsequently employs
+.BR mmap(MAP_FIXED) ,
+it will effectively clobber the mapping that thread B created.
+In this scenario,
+thread B need not create a mapping directly; simply making a library call
+that, internally, uses
+.BR dlopen (3)
+to load some other shared library, will suffice.
+The
+.BR dlopen (3)
+call will map the library into the process's address space.
+Furthermore, almost any library call may be implemented in a way that
+adds memory mappings to the address space, either with this technique,
+or by simply allocating memory.
+Examples include
+.BR brk (2),
+.BR malloc (3),
+.BR pthread_create (3),
+and the PAM libraries
+.UR http://www.linux-pam.org
+.UE .
+.PP
+Since Linux 4.17, a multithreaded program can use the
+.BR MAP_FIXED_NOREPLACE
+flag to avoid the hazard described above
+when attempting to create a mapping at a fixed address
+that has not been reserved by a preexisting mapping.
+.\"
+.SS Timestamps changes for file-backed mappings
+For file-backed mappings, the
+.I st_atime
+field for the mapped file may be updated at any time between the
+.BR mmap ()
+and the corresponding unmapping; the first reference to a mapped
+page will update the field if it has not been already.
 .PP
 The
-.B SA_RESETHAND
-flag is compatible with the SVr4 flag of the same name.
+.I st_ctime
+and
+.I st_mtime
+field for a file mapped with
+.B PROT_WRITE
+and
+.B MAP_SHARED
+will be updated after
+a write to the mapped region, and before a subsequent
+.BR msync (2)
+with the
+.B MS_SYNC
+or
+.B MS_ASYNC
+flag, if one occurs.
+.\"
+.SS Huge page (Huge TLB) mappings
+For mappings that employ huge pages, the requirements for the arguments of
+.BR mmap ()
+and
+.BR munmap ()
+differ somewhat from the requirements for mappings
+that use the native system page size.
 .PP
-The
-.B SA_NODEFER
-flag is compatible with the SVr4 flag of the same name under kernels
-1.3.9 and later.
-On older kernels the Linux implementation
-allowed the receipt of any signal, not just the one we are installing
-(effectively overriding any
-.I sa_mask
-settings).
+For
+.BR mmap (),
+.I offset
+must be a multiple of the underlying huge page size.
+The system automatically aligns
+.I length
+to be a multiple of the underlying huge page size.
 .PP
-.BR sigaction ()
-can be called with a NULL second argument to query the current signal
-handler.
-It can also be used to check whether a given signal is valid for
-the current machine by calling it with NULL second and third arguments.
-.PP
-It is not possible to block
-.BR SIGKILL " or " SIGSTOP
-(by specifying them in
-.IR sa_mask ).
-Attempts to do so are silently ignored.
-.PP
-See
-.BR sigsetops (3)
-for details on manipulating signal sets.
-.PP
-See
-.BR signal\-safety (7)
-for a list of the async-signal-safe functions that can be
-safely called inside from inside a signal handler.
+For
+.BR munmap (),
+.IR addr ,
+and
+.I length
+must both be a multiple of the underlying huge page size.
 .\"
 .SS C library/kernel differences
-The glibc wrapper function for
-.BR sigaction ()
-gives an error
-.RB ( EINVAL )
-on attempts to change the disposition of the two real-time signals
-used internally by the NPTL threading implementation.
-See
-.BR nptl (7)
-for details.
-.PP
-On architectures where the signal trampoline resides in the C library,
-the glibc wrapper function for
-.BR sigaction ()
-places the address of the trampoline code in the
-.I act.sa_restorer
-field and sets the
-.B SA_RESTORER
-flag in the
-.IR act.sa_flags
-field.
-See
-.BR sigreturn (2).
-.PP
-The original Linux system call was named
-.BR sigaction ().
-However, with the addition of real-time signals in Linux 2.2,
-the fixed-size, 32-bit
-.IR sigset_t
-type supported by that system call was no longer fit for purpose.
-Consequently, a new system call,
-.BR rt_sigaction (),
-was added to support an enlarged
-.IR sigset_t
-type.
-The new system call takes a fourth argument,
-.IR "size_t sigsetsize" ,
-which specifies the size in bytes of the signal sets in
-.IR act.sa_mask
-and
-.IR oldact.sa_mask .
-This argument is currently required to have the value
-.IR sizeof(sigset_t)
-(or the error
-.B EINVAL
-results).
-The glibc
-.BR sigaction ()
-wrapper function hides these details from us, transparently calling
-.BR rt_sigaction ()
-when the kernel provides it.
-.\"
-.SS Undocumented
-Before the introduction of
-.BR SA_SIGINFO ,
-it was also possible to get some additional information about the signal.
-This was done by providing an
-.I sa_handler
-signal handler with a second argument of type
-.IR "struct sigcontext" ,
-which is the same structure as the one that is passed in the
-.I uc_mcontext
-field of the
-.I ucontext
-structure that is passed (via a pointer) in the third argument of the
-.I sa_sigaction
-handler.
-See the relevant Linux kernel sources for details.
-This use is obsolete now.
+This page describes the interface provided by the glibc
+.BR mmap ()
+wrapper function.
+Originally, this function invoked a system call of the same name.
+Since kernel 2.4, that system call has been superseded by
+.BR mmap2 (2),
+and nowadays
+.\" Since around glibc 2.1/2.2, depending on the platform.
+the glibc
+.BR mmap ()
+wrapper function invokes
+.BR mmap2 (2)
+with a suitably adjusted value for
+.IR offset .
 .SH BUGS
-When delivering a signal with a
-.B SA_SIGINFO
-handler,
-the kernel does not always provide meaningful values
-for all of the fields of the
-.I siginfo_t
-that are relevant for that signal.
+On Linux, there are no guarantees like those suggested above under
+.BR MAP_NORESERVE .
+By default, any process can be killed
+at any moment when the system runs out of memory.
 .PP
-In kernels up to and including 2.6.13, specifying
-.B SA_NODEFER
-in
-.I sa_flags
-prevents not only the delivered signal from being masked during
-execution of the handler, but also the signals specified in
-.IR sa_mask .
-This bug was fixed in kernel 2.6.14.
-.\" commit 69be8f189653cd81aae5a74e26615b12871bb72e
+In kernels before 2.6.7, the
+.B MAP_POPULATE
+flag has effect only if
+.I prot
+is specified as
+.BR PROT_NONE .
+.PP
+SUSv3 specifies that
+.BR mmap ()
+should fail if
+.I length
+is 0.
+However, in kernels before 2.6.12,
+.BR mmap ()
+succeeded in this case: no mapping was created and the call returned
+.IR addr .
+Since kernel 2.6.12,
+.BR mmap ()
+fails with the error
+.B EINVAL
+for this case.
+.PP
+POSIX specifies that the system shall always
+zero fill any partial page at the end
+of the object and that system will never write any modification of the
+object beyond its end.
+On Linux, when you write data to such partial page after the end
+of the object, the data stays in the page cache even after the file
+is closed and unmapped
+and even though the data is never written to the file itself,
+subsequent mappings may see the modified content.
+In some cases, this could be fixed by calling
+.BR msync (2)
+before the unmap takes place;
+however, this doesn't work on
+.BR tmpfs (5)
+(for example, when using the POSIX shared memory interface documented in
+.BR shm_overview (7)).
 .SH EXAMPLES
-See
-.BR mprotect (2).
-.SS Probing for flag support
-The following example program exits with status
-.B EXIT_SUCCESS
-if
-.B SA_EXPOSE_TAGBITS
-is determined to be supported, and
-.B EXIT_FAILURE
-otherwise.
-.PP
+.\" FIXME . Add an example here that uses an anonymous shared region for
+.\" IPC between parent and child.
+The following program prints part of the file specified in
+its first command-line argument to standard output.
+The range of bytes to be printed is specified via offset and length
+values in the second and third command-line arguments.
+The program creates a memory mapping of the required
+pages of the file and then uses
+.BR write (2)
+to output the desired bytes.
+.SS Program source
 .EX
-#include <signal.h>
-#include <stdlib.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
-void
-handler(int signo, siginfo_t *info, void *context)
-{
-    struct sigaction oldact;
-
-    if (sigaction(SIGSEGV, NULL, &oldact) == \-1 ||
-            (oldact.sa_flags & SA_UNSUPPORTED) ||
-            !(oldact.sa_flags & SA_EXPOSE_TAGBITS)) {
-        _exit(EXIT_FAILURE);
-    }
-    _exit(EXIT_SUCCESS);
-}
+#define handle_error(msg) \e
+    do { perror(msg); exit(EXIT_FAILURE); } while (0)
 
 int
-main(void)
+main(int argc, char *argv[])
 {
-    struct sigaction act = { 0 };
+    char *addr;
+    int fd;
+    struct stat sb;
+    off_t offset, pa_offset;
+    size_t length;
+    ssize_t s;
 
-    act.sa_flags = SA_SIGINFO | SA_UNSUPPORTED | SA_EXPOSE_TAGBITS;
-    act.sa_sigaction = &handler;
-    if (sigaction(SIGSEGV, &act, NULL) == \-1) {
-        perror("sigaction");
+    if (argc < 3 || argc > 4) {
+        fprintf(stderr, "%s file offset [length]\en", argv[0]);
         exit(EXIT_FAILURE);
     }
 
-    raise(SIGSEGV);
+    fd = open(argv[1], O_RDONLY);
+    if (fd == \-1)
+        handle_error("open");
+
+    if (fstat(fd, &sb) == \-1)           /* To obtain file size */
+        handle_error("fstat");
+
+    offset = atoi(argv[2]);
+    pa_offset = offset & \(ti(sysconf(_SC_PAGE_SIZE) \- 1);
+        /* offset for mmap() must be page aligned */
+
+    if (offset >= sb.st_size) {
+        fprintf(stderr, "offset is past end of file\en");
+        exit(EXIT_FAILURE);
+    }
+
+    if (argc == 4) {
+        length = atoi(argv[3]);
+        if (offset + length > sb.st_size)
+            length = sb.st_size \- offset;
+                /* Can\(aqt display bytes past end of file */
+
+    } else {    /* No length arg ==> display to end of file */
+        length = sb.st_size \- offset;
+    }
+
+    addr = mmap(NULL, length + offset \- pa_offset, PROT_READ,
+                MAP_PRIVATE, fd, pa_offset);
+    if (addr == MAP_FAILED)
+        handle_error("mmap");
+
+    s = write(STDOUT_FILENO, addr + offset \- pa_offset, length);
+    if (s != length) {
+        if (s == \-1)
+            handle_error("write");
+
+        fprintf(stderr, "partial write");
+        exit(EXIT_FAILURE);
+    }
+
+    munmap(addr, length + offset \- pa_offset);
+    close(fd);
+
+    exit(EXIT_SUCCESS);
 }
 .EE
 .SH SEE ALSO
-.BR kill (1),
-.BR kill (2),
-.BR pause (2),
-.BR pidfd_send_signal (2),
-.BR restart_syscall (2),
-.BR seccomp (2),
-.BR sigaltstack (2),
-.BR signal (2),
-.BR signalfd (2),
-.BR sigpending (2),
-.BR sigprocmask (2),
-.BR sigreturn (2),
-.BR sigsuspend (2),
-.BR wait (2),
-.BR killpg (3),
-.BR raise (3),
-.BR siginterrupt (3),
-.BR sigqueue (3),
-.BR sigsetops (3),
-.BR sigvec (3),
-.BR core (5),
-.BR signal (7)
+.BR ftruncate (2),
+.BR getpagesize (2),
+.BR memfd_create (2),
+.BR mincore (2),
+.BR mlock (2),
+.BR mmap2 (2),
+.BR mprotect (2),
+.BR mremap (2),
+.BR msync (2),
+.BR remap_file_pages (2),
+.BR setrlimit (2),
+.BR shmat (2),
+.BR userfaultfd (2),
+.BR shm_open (3),
+.BR shm_overview (7)
+.PP
+The descriptions of the following files in
+.BR proc (5):
+.IR /proc/[pid]/maps ,
+.IR /proc/[pid]/map_files ,
+and
+.IR /proc/[pid]/smaps .
+.PP
+B.O. Gallmeister, POSIX.4, O'Reilly, pp. 128\(en129 and 389\(en391.
+.\"
+.\" Repeat after me: private read-only mappings are 100% equivalent to
+.\" shared read-only mappings. No ifs, buts, or maybes. -- Linus
