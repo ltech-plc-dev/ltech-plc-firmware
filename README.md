@@ -1,3 +1,3 @@
 Welcome to our code repository.
-This code is targeted for Aqua PLC version 0.1 and greater.
-We have provided an example configuration located in firmware.bin compiled for system 0x290e9b8d3adb29c1a88b6cd0.
+This code is targeted for Magma PLC version 2.10 and greater.
+We have provided an example configuration located in firmware.bin compiled for system 0x2ceaf2d784c18ecf6ea0.
